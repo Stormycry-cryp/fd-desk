@@ -9,7 +9,7 @@ import { Button, Segmented, Tabs } from "../ui/controls"
 import { Badge, Card, CoverageDots, Delta, ErrorState, Rate, Sev, Stat } from "../ui/display"
 import { BarList, Heatmap, LevelBar, MiniArea, PairBars, StackBar, TrendChart } from "../ui/charts"
 import { Icon } from "../ui/icons"
-import { Hint, Tooltip } from "../ui/overlays"
+import { Hint } from "../ui/overlays"
 import { CmpFoot, PageSkeleton, fmt, trimHistory, weekPoint } from "./common"
 
 export const WeekPage = () => {
@@ -88,7 +88,7 @@ const Hero = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
           <div className="k">
             {hasStable ? "稳定使用企业 · 近 12 周" : "活跃企业 · 近 12 周"}
             {sparse && <span className="faint">数据积累中</span>}
-            {excluded && <Badge tone="accent">对比不含最大客户</Badge>}
+            {excluded && <Badge tone="accent">对比采用排除名单</Badge>}
           </div>
           <TrendChart points={pts} height={210} kind={sparse ? "bar" : "line"} highlight={pts.length - 1} />
         </div>
@@ -219,22 +219,17 @@ const Activity = ({ o }: { o: Overview }) => {
 }
 
 const Concentration = ({ o }: { o: Overview }) => {
-  const t = o.tasks
-  const pair = t.comparable
-  const ex = t.comparableExcluded
   const unit = o.line === "inspiration" ? "任务" : "耗点"
   const m = o.line === "inspiration" ? o.tasks : o.points
   const p = m.comparable
-  const pe = m.comparableExcluded
-  void pair
-  void ex
+  const pe = o.concentration.withoutTop1
   return (
-    <Card className="span-4" title="集中度" sub={`同星期${unit}`} actions={<Badge tone="outline">前 10 家占 {pct(o.concentration.top10TaskShare)}</Badge>}>
+    <Card className="span-4" title="集中度" sub={`同星期${unit}`} actions={<Badge tone="outline">前 10 家占 {pct(o.line === "inspiration" ? o.concentration.top10TaskShare : o.concentration.top10PointShare)}</Badge>}>
       <PairBars
         format={o.line === "inspiration" ? num : compact}
         rows={[
           { key: "all", label: "全部", previous: p?.previous ?? null, current: p?.current ?? null, tail: p ? <Delta pair={p} pill /> : null },
-          { key: "ex", label: <>不含最大客户{!pe && <Tooltip content="在数据页设置排除企业后显示"><span><Icon name="info" size="xs" className="faint" /></span></Tooltip>}</>, previous: pe?.previous ?? null, current: pe?.current ?? null, tail: pe ? <Delta pair={pe} pill /> : null },
+          { key: "ex", label: "不含最大客户", previous: pe?.previous ?? null, current: pe?.current ?? null, tail: pe ? <Delta pair={pe} pill /> : null },
         ]}
       />
       <div className="divider" />

@@ -9,7 +9,7 @@ export const useCtx = () => {
   const cov = (w: string) => m?.coverage.find((c) => c.line === route.line && c.week === w)
   const fallback = m?.latestWeek[route.line] ?? weeks[weeks.length - 1] ?? null
   const week = route.week && weeks.includes(route.week) ? route.week : fallback
-  return { route, line: route.line, week, meta: m, metaLoading: meta.isLoading, coverage: week ? cov(week) : undefined, cov, excluded: route.excluded, exIds: m?.excluded[route.line] ?? [] }
+  return { route, line: route.line, week, meta: m, metaLoading: meta.isLoading, metaError: meta.error, refreshMeta: meta.refetch, coverage: week ? cov(week) : undefined, cov, excluded: route.excluded, exIds: m?.excluded[route.line] ?? [] }
 }
 
 export const isoWeek = (w: string) => {

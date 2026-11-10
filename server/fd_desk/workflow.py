@@ -58,8 +58,13 @@ class Workflow:
         if body.clusterId:
             indices = cluster_indices(self.engine, body.line, body.clusterId)
             owners = [ref(self.engine.enterprises[eid]) for eid in sorted(set(self.engine.frame.loc[indices].enterprise_id))]
+        scope = body.scope or ("owner" if owners else "general")
+        if scope == "owner" and not owners:
+            raise ApiProblem(422, "source_enterprises_required", "仅来源企业的草稿需要提供真实提示词簇")
+        if owners and scope == "general" and body.source != "manual":
+            raise ApiProblem(409, "manual_scope_required", "通用范围需要手工确认")
         item = {"id": uuid4().hex, "line": body.line, "title": authored(body.title, body.source), "prompt": authored(body.prompt, body.source),
-            "slots": body.slots, "scene": body.scene, "clusterId": body.clusterId, "status": "draft", "scope": "owner" if owners else "general",
+            "slots": body.slots, "scene": body.scene, "clusterId": body.clusterId, "status": "draft", "scope": scope,
             "sourceEnterprises": owners, "fdTemplateId": None, "fdTemplateSource": None, "link": None, "pushedTo": [], "pushes": [], "createdAt": now()}
         self.store.save("drafts", item, conn)
         return item
@@ -67,6 +72,7 @@ class Workflow:
     def patch_draft(self, key, body):
         item = self.store.item("drafts", key)
         changes = body.model_dump(exclude_unset=True, exclude={"source"})
+        content_changed = any(field in changes and changes[field] != (item[field]["text"] if field in ("title", "prompt") else item[field]) for field in ("title", "prompt", "slots"))
         if changes.get("scope") == "general" and item["scope"] == "owner" and body.source != "manual":
             raise ApiProblem(409, "manual_scope_required", "通用范围需要手工确认")
         for field in ("title", "prompt"):
@@ -75,7 +81,7 @@ class Workflow:
                 changes[field] = authored(changes[field], body.source)
         if "pushedTo" in changes:
             changes["pushedTo"] = [ref(self.store.enterprise(eid)) for eid in dict.fromkeys(changes["pushedTo"])]
-        if any(field in changes for field in ("title", "prompt", "slots")) and item["fdTemplateId"] and "fdTemplateId" not in changes:
+        if content_changed and item["fdTemplateId"] and "fdTemplateId" not in changes:
             changes.update(fdTemplateId=None, fdTemplateSource=None, link=None, status="draft", pushedTo=[])
         item.update(changes)
         if bool(item["fdTemplateId"]) != bool(item["fdTemplateSource"]):

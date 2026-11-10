@@ -148,9 +148,9 @@ export const RadioGroup = <T extends string>({ value, onChange, options, row, ca
   </div>
 )
 
-export const Switch = ({ checked, onChange, children, size }: { checked: boolean; onChange: (v: boolean) => void; children?: ReactNode; size?: "sm" }) => (
+export const Switch = ({ checked, onChange, children, size, disabled }: { checked: boolean; onChange: (v: boolean) => void; children?: ReactNode; size?: "sm"; disabled?: boolean }) => (
   <label className={cx("switch", checked && "on", size)}>
-    <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
     <span className="switch-track" />
     {children}
   </label>

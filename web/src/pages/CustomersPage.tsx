@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { AlertKind, Level, Line, Movement, Pool, RosterRow, TouchSlot } from "@spec/contract"
 import { useRoster } from "../api/hooks"
-import { call, getMode, url } from "../api/client"
+import { call, url } from "../api/client"
 import { useQueryClient } from "@tanstack/react-query"
 import { useCtx } from "../lib/ctx"
 import { alertName, kindName, levelName, levelOrder, lineName, movementName, poolName, poolOrder, slotName } from "../lib/labels"
@@ -31,26 +31,37 @@ const sorters: Record<SortKey, (r: RosterRow) => number | string> = {
   ppd: (r) => r.video?.pointsPerDownloaded ?? -1,
 }
 
-export const exportFile = (href: string, name: string) => {
-  if (getMode() === "mock") return toast(`模拟数据下不生成文件，连接后端后可导出 ${name}`)
-  const a = document.createElement("a")
-  a.href = href
-  a.download = name
-  a.click()
+export const exportFile = async (href: string, name: string) => {
+  try {
+    const response = await fetch(href)
+    if (!response.ok) throw new Error((await response.json()).message)
+    if (!(response.headers.get("content-type") ?? "").includes("spreadsheetml")) throw new Error("导出接口未返回 Excel 文件")
+    const objectUrl = URL.createObjectURL(await response.blob())
+    const a = document.createElement("a")
+    a.href = objectUrl
+    a.download = name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+  } catch (e) {
+    toast((e as Error).message, { tone: "error" })
+  }
 }
 
 export const CustomersPage = () => {
   const { line, week, route } = useCtx()
-  const q = useRoster(line, week)
+  const [models, setModels] = useState<string[]>([])
+  const q = useRoster(line, week, models[0])
   const qc = useQueryClient()
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "tasks", dir: -1 })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [focus, setFocus] = useState(-1)
+  const [batchBusy, setBatchBusy] = useState(false)
   const [intent, setIntent] = useState<string[]>([])
   const [kind, setKind] = useState<string[]>([])
   const [search, setSearch] = useState(route.q)
   const tbody = useRef<HTMLTableSectionElement>(null)
   useEffect(() => setSelected(new Set()), [line, week])
+  useEffect(() => setModels([]), [line, week])
   const rows = q.data?.rows ?? []
   const owners = useMemo(() => [...new Set(rows.map((r) => r.owner.sales).filter(Boolean) as string[])].sort(), [rows])
   const intents = useMemo(() => {
@@ -131,21 +142,30 @@ export const CustomersPage = () => {
     </th>
   )
   const createTouches = async (slot: TouchSlot) => {
+    if (batchBusy) return
+    setBatchBusy(true)
     const list = rows.filter((r) => selected.has(r.enterprise.id))
+    let completed = 0
     try {
-      await Promise.all(list.map((r) => call("POST /api/touches", { body: { line, week: week!, slot, enterprise: r.enterprise.id, goal: r.pool ?? "nurture", draft: r.nextAction?.text, owner: r.owner.sales ?? undefined, source: "manual" } })))
-      qc.invalidateQueries({ queryKey: ["GET /api/touches"] })
-      qc.invalidateQueries({ queryKey: ["GET /api/enterprises"] })
+      for (const r of list) {
+        await call("POST /api/touches", { body: { line, week: week!, slot, enterprise: r.enterprise.id, goal: r.pool ?? "nurture", draft: r.nextAction?.text, owner: r.owner.sales ?? undefined, source: "manual" } })
+        completed += 1
+        setSelected(previous => { const next = new Set(previous); next.delete(r.enterprise.id); return next })
+      }
       toast(`已在${slotName[slot]}建了 ${list.length} 张触达卡片`, { tone: "ok", action: { label: "查看", run: () => navigate({ page: "touches" }) } })
       setSelected(new Set())
     } catch (e: any) {
-      toast(e?.missing ? "后端尚未提供触达接口" : `创建失败：${e?.message ?? ""}`, { tone: "error" })
+      toast(`已创建 ${completed} 张，创建中断：${e.message}`, { tone: "error" })
+    } finally {
+      qc.invalidateQueries({ queryKey: ["GET /api/touches"] })
+      qc.invalidateQueries({ queryKey: ["GET /api/enterprises"] })
+      setBatchBusy(false)
     }
   }
   const pc = q.data?.poolCounts
   const insp = line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
-  const anyFilter = route.level || route.movement || route.alert || route.owner || intent.length || kind.length || search
+  const anyFilter = route.level || route.movement || route.alert || route.owner || intent.length || kind.length || models.length || search
   return (
     <div className="page">
       <div className="page-head">
@@ -190,6 +210,7 @@ export const CustomersPage = () => {
         <FilterChip label="变动" value={route.movement ? [route.movement] : []} onChange={(v) => navigate({ movement: (v[0] as Movement) ?? null }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
         <FilterChip label="预警" value={route.alert ? [route.alert] : []} onChange={(v) => navigate({ alert: (v[0] as AlertKind) ?? null }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
         <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={setIntent} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
+        <FilterChip label="模型" value={models} onChange={setModels} options={(q.data?.models ?? []).map(model => ({ value: model, label: model }))} />
         {owners.length > 0 && <FilterChip label="负责人" search value={route.owner ? [route.owner] : []} onChange={(v) => navigate({ owner: v[0] ?? null }, { replace: true })} options={owners.map((o) => ({ value: o, label: o, count: rows.filter((r) => r.owner.sales === o).length }))} />}
         <FilterChip label="类型" multi value={kind} onChange={setKind} options={(["customer", "internal", "agency", "unknown"] as const).map((k) => ({ value: k, label: kindName[k], count: rows.filter((r) => r.enterprise.kind === k).length })).filter((o) => o.count)} />
         {anyFilter && (
@@ -200,6 +221,7 @@ export const CustomersPage = () => {
               navigate({ level: null, movement: null, alert: null, owner: null }, { replace: true })
               setIntent([])
               setKind([])
+              setModels([])
               setSearch("")
             }}
           >
@@ -258,11 +280,12 @@ export const CustomersPage = () => {
             width={200}
             items={(["mon", "wed", "fri"] as TouchSlot[]).map((s) => ({ key: s, label: `${slotName[s]}触达`, icon: "send", onSelect: () => createTouches(s) }))}
             trigger={({ toggle, ref }) => (
-              <Button ref={ref as any} size="sm" variant="primary" icon="send" iconRight="chevDown" onClick={toggle}>
+              <Button ref={ref as any} size="sm" variant="primary" icon="send" iconRight="chevDown" loading={batchBusy} onClick={toggle}>
                 建触达卡片
               </Button>
             )}
           />
+          <Button size="sm" icon="download" onClick={() => exportFile(url("GET /api/enterprises/export", { query: { line, week: week!, ids: [...selected] } }), `客户名单_${lineName[line]}_${week}.xlsx`)}>导出所选企业</Button>
           <Button size="sm" variant="ghost" icon="x" onClick={() => setSelected(new Set())}>
             取消
           </Button>

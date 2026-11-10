@@ -178,7 +178,7 @@ export interface Overview {
   points: Metric
   downloadRate: Metric
   failed: Metric
-  concentration: { top1: EnterpriseRef; top1TaskShare: number; top10TaskShare: number; top1PointShare: number }
+  concentration: { top1: EnterpriseRef; top1TaskShare: number; top10TaskShare: number; top1PointShare: number; top10PointShare: number; withoutTop1: Pair | null }
   history: HistoryPoint[]
   movers: Record<"rising" | "falling" | "new" | "returned" | "silent", Mover[]>
   moverCounts: { rising: number; falling: number; largeAccounts: number; largeAccountsHalved: number }
@@ -239,6 +239,7 @@ export interface Roster {
   week: WeekKey
   rows: RosterRow[]
   poolCounts: Record<Pool, number>
+  models: string[]
 }
 
 export interface Member {
@@ -528,6 +529,7 @@ export interface ReportLine {
   points: Metric
   downloadRate: Metric
   top1Share: number
+  withoutTop1: Pair | null
   falling: { enterprise: EnterpriseRef; current: number; previous: number; reason: string | null }[]
   rising: { enterprise: EnterpriseRef; current: number; previous: number; reason: string | null }[]
 }
@@ -653,7 +655,7 @@ export interface Api {
 
   "GET /api/overview": { query: { line: Line; week: WeekKey }; response: Overview }
 
-  "GET /api/enterprises": { query: { line: Line; week: WeekKey }; response: Roster }
+  "GET /api/enterprises": { query: { line: Line; week: WeekKey; model?: string }; response: Roster }
   "GET /api/enterprises/:id": { query: { week: WeekKey }; response: EnterpriseDetail }
   "PATCH /api/enterprises/:id": {
     body: Partial<{ kind: EnterpriseKind; contract: ContractState; owner: Owner; summary: string; source: Source }>
@@ -662,7 +664,7 @@ export interface Api {
   "PUT /api/enterprises/:id/next-action": { body: { line: Line; text: string; source: Source }; response: Authored }
   "POST /api/enterprises/:id/notes": { body: { text: string }; response: Note }
   "DELETE /api/notes/:id": { response: null }
-  "GET /api/enterprises/export": { query: { line: Line; week: WeekKey; pool?: Pool }; response: Blob }
+  "GET /api/enterprises/export": { query: { line: Line; week: WeekKey; pool?: Pool; ids?: Id[] }; response: Blob }
 
   "GET /api/tasks": { query: TaskQuery; response: Page<Task> }
   "GET /api/chains": { query: { line: Line; week: WeekKey; enterprise?: Id; minLength?: number; downloaded?: boolean }; response: Page<Chain> }
@@ -677,7 +679,7 @@ export interface Api {
   "GET /api/clusters": { query: { line: Line; week?: WeekKey; enterprise?: Id; candidate?: boolean }; response: Cluster[] }
   "GET /api/drafts": { query: { line: Line }; response: TemplateDraft[] }
   "POST /api/drafts": {
-    body: { line: Line; title: string; prompt: string; slots: string[]; scene?: string; clusterId?: Id; source: Source }
+    body: { line: Line; title: string; prompt: string; slots: string[]; scene?: string; clusterId?: Id; scope?: DraftScope; source: Source }
     response: TemplateDraft
   }
   "PATCH /api/drafts/:id": {

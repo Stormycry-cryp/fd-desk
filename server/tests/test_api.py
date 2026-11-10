@@ -73,7 +73,7 @@ def test_overview_and_incomplete_week(client, line, tasks, stable, points):
 
 def test_roster_history_and_detail_contract(client):
     roster = client.get("/api/enterprises", params={"line": "inspiration", "week": WEEK}).json()
-    assert set(roster) == {"line", "week", "rows", "poolCounts"}
+    assert set(roster) == {"line", "week", "rows", "poolCounts", "models"}
     assert set(roster["poolCounts"]) == {"retain", "recall", "help", "keep", "nurture", "convert"}
     assert sum(roster["poolCounts"].values()) <= len(roster["rows"])
     assert any(row["tasks"] == 0 for row in roster["rows"])

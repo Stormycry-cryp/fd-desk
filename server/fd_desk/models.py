@@ -231,6 +231,7 @@ class DraftCreate(Input):
     slots: list[str]
     scene: str | None = None
     clusterId: str | None = None
+    scope: Literal["owner", "general"] | None = None
     source: Source
 
 

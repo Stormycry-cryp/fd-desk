@@ -46,6 +46,9 @@ class Automation:
     def create(self, body):
         runtime(self.store.directory)
         validate_week(body.week)
+        existing = next((job for job in self.store.items("automation_jobs") if job["line"] == body.line and job["week"] == body.week and job["state"] in ("queued", "running")), None)
+        if existing:
+            return existing
         item = {"id": uuid4().hex, "state": "queued", "error": None, "line": body.line, "week": body.week, "createdAt": now()}
         self.store.save("automation_jobs", item)
         return item

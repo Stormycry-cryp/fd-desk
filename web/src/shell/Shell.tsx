@@ -1,6 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
 import { useAlerts, useOverview, useTouches } from "../api/hooks"
-import { getMode, setMode } from "../api/client"
 import { useCtx, isoWeek } from "../lib/ctx"
 import { lineName } from "../lib/labels"
 import { navigate, type PageKey } from "../lib/route"
@@ -23,7 +22,7 @@ const nav: { key: PageKey; label: string; icon: IconName; k: string }[] = [
 const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "触达", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业" }
 
 export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: () => void; order: PageKey[] }) => {
-  const { route, line, week, meta, coverage, exIds } = useCtx()
+  const { route, line, week, meta, metaError, coverage, exIds } = useCtx()
   const ov = useOverview(line, week)
   const touches = useTouches(line, week)
   const alerts = useAlerts(line, week)
@@ -39,7 +38,6 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
     customers: alertN ? { n: alertN, alert: true } : null,
     touches: todo ? { n: todo } : null,
   }
-  const mode = getMode()
   return (
     <div className="app">
       <aside className="side">
@@ -88,16 +86,16 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
           </a>
         </nav>
         <div className="side-foot">
-          <Tooltip content={mode === "mock" ? "当前使用模拟数据，点击切换到后端" : "已连接本机后端，点击切换到模拟数据"}>
-            <button className={cx("src-mode", mode === "mock" && "mock")} onClick={() => setMode(mode === "mock" ? "live" : "mock")}>
+          <Tooltip content={metaError ? "本机后端连接失败" : "使用本机后端的真实导入数据"}>
+            <div className={cx("src-mode", !!metaError && "error")}>
               <i />
               <span className="stack">
-                <span style={{ color: "var(--ink-2)", fontWeight: 500 }}>{mode === "mock" ? "模拟数据" : "本机后端"}</span>
+                <span style={{ color: "var(--ink-2)", fontWeight: 500 }}>{metaError ? "连接失败" : meta ? "本机后端" : "连接中"}</span>
                 <span className="faint" style={{ fontSize: 12 }}>
                   {meta?.lastImportAt ? `导入于 ${time(meta.lastImportAt)}` : "—"}
                 </span>
               </span>
-            </button>
+            </div>
           </Tooltip>
         </div>
       </aside>
@@ -118,7 +116,7 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
             </Tooltip>
           )}
           <WeekPicker />
-          <Tooltip content={exIds.length ? `对比数字去掉占比最大的 ${exIds.length} 家企业` : "没有设置排除企业"}>
+          <Tooltip content={exIds.length ? `对比数字排除名单中的 ${exIds.length} 家企业` : "没有设置排除企业"}>
             <button
               className={cx("chip", route.excluded ? "on" : "idle")}
               disabled={!exIds.length}
@@ -126,7 +124,7 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
               onClick={() => navigate({ excluded: !route.excluded }, { replace: true })}
             >
               <Icon name={route.excluded ? "check" : "filter"} size="xs" />
-              不含最大客户
+              应用排除名单
             </button>
           </Tooltip>
           <button className="search-btn" onClick={onSearch}>

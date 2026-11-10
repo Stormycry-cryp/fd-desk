@@ -5,18 +5,21 @@ import { time } from "../../lib/format"
 import { Badge, Thumb, copyText } from "../../ui/display"
 import { Icon } from "../../ui/icons"
 import { Modal } from "../../ui/overlays"
-import { IconButton, cx } from "../../ui/controls"
+import { Button, IconButton, cx } from "../../ui/controls"
+import { RerunModal } from "./RerunModal"
 
 export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: number | null; onClose: () => void }) => {
   const [i, setI] = useState(index ?? 0)
   const [out, setOut] = useState(0)
   const [play, setPlay] = useState(false)
+  const [rerun, setRerun] = useState(false)
   useEffect(() => {
     if (index != null) setI(index)
   }, [index])
   useEffect(() => {
     setOut(0)
     setPlay(false)
+    setRerun(false)
   }, [i])
   useEffect(() => {
     if (index == null) return
@@ -46,7 +49,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                     <video src={m.url} poster={m.poster ?? undefined} controls autoPlay />
                   ) : (
                     <button key={m.thumb} className="stage-img" onClick={() => isVideo && setPlay(true)}>
-                      <img src={isVideo ? m.poster ?? m.thumb : m.thumb.replace(/w=\d+/, "w=1200")} alt="" />
+                      <img src={isVideo ? m.poster ?? m.thumb : m.url} alt="" />
                       {isVideo && (
                         <span style={{ position: "absolute", width: 56, height: 56, borderRadius: "50%", background: "rgba(0,0,0,.45)", display: "grid", placeItems: "center", color: "#fff" }}>
                           <Icon name="play" style={{ fill: "#fff", stroke: "none" }} />
@@ -99,6 +102,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   <IconButton size="xs" icon="copy" label="复制提示词" onClick={() => copyText(t.prompt, "提示词已复制")} />
                 </div>
                 <div className="prompt">{t.prompt || <span className="faint">无</span>}</div>
+                {t.line === "inspiration" && !!t.inputs.length && <Button size="sm" icon="wand" style={{ marginTop: 12 }} onClick={() => setRerun(true)}>重跑对比</Button>}
               </div>
               {t.inputs.length > 0 && (
                 <div className="sec">
@@ -163,6 +167,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
           </div>
         )}
       </Modal>
+      {rerun && t && index != null && <RerunModal key={t.rowKey} task={t} onClose={() => setRerun(false)} />}
     </div>
   )
 }

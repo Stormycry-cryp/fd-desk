@@ -114,20 +114,30 @@ def create_app(directory=None):
             return views.daily(engine, line, from_, to, enterprise)
 
     @app.get("/api/enterprises")
-    def get_enterprises(line: Line, week: str):
-        with store.lock, lock:
-            return views.roster(engine, line, checked_week(week))
-
-    @app.get("/api/enterprises/export")
-    def export_enterprises(line: Line, week: str, pool: Pool | None = None):
+    def get_enterprises(line: Line, week: str, model: str | None = None):
         with store.lock, lock:
             result = views.roster(engine, line, checked_week(week))
+            if model is not None:
+                group = engine.group(line, week)
+                selected = set(group.loc[group.model == model, "enterprise_id"])
+                result["rows"] = [row for row in result["rows"] if row["enterprise"]["id"] in selected]
+            return result
+
+    @app.get("/api/enterprises/export")
+    def export_enterprises(line: Line, week: str, pool: Pool | None = None, ids: str | None = None):
+        with store.lock, lock:
+            result = views.roster(engine, line, checked_week(week))
+            selected = set(ids.split(",")) if ids is not None else None
+            if selected is not None and not selected <= {row["enterprise"]["id"] for row in result["rows"]}:
+                raise ApiProblem(422, "invalid_enterprises", "导出名单包含当前范围以外的企业")
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "客户名单"
             sheet.append(["企业", "类型", "在约状态", "对应运营", "对应售后", "层级", "变动", "所属池", "任务数", "耗点", "使用天数", "下载率", "下载信号可靠", "同星期本周", "同星期上周", "最近活跃", "下一步"])
             for row in result["rows"]:
                 if pool is not None and row["pool"] != pool:
+                    continue
+                if selected is not None and row["enterprise"]["id"] not in selected:
                     continue
                 values = [row["enterprise"]["name"], row["enterprise"]["kind"], row["contract"], row["owner"]["sales"], row["owner"]["afterSales"], row["level"], row["movement"], row["pool"], row["tasks"], row["points"], row["activeDays"], row["downloadRate"], row["downloadSignalReliable"], row["comparable"]["current"] if row["comparable"] else None, row["comparable"]["previous"] if row["comparable"] else None, row["lastActiveAt"], row["nextAction"]["text"] if row["nextAction"] else None]
                 sheet.append(values)

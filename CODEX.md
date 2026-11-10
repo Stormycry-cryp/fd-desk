@@ -2,7 +2,7 @@
 
 ## 你负责什么
 
-fd-desk 后端（`server/`）和导出采集（`collector/`）。前端（`web/`）由另一个代理负责，不要改 `web/`。
+fd-desk 后端（`server/`）、导出采集（`collector/`）和前后端集成。前端（`web/`）沿用原会话已完成的页面设计，主会话按用户授权连接真实接口、修复功能并完成运行验证。
 
 先读，按这个顺序：
 
@@ -37,6 +37,7 @@ fd-desk 后端（`server/`）和导出采集（`collector/`）。前端（`web/`
 - `GET /api/enterprises/export` 必须注册在 `GET /api/enterprises/:id` 之前。
 - `Metric.comparable`：同星期对比的 `{current, previous}`，只用两周都覆盖的星期几；上一周没有数据时为 `null`。`comparableExcluded`：去掉 `settings.excluded[line]` 里的企业后的同一对数字，列表为空时为 `null`。`Metric.value` 是本周全量值。
 - `Overview.stable` 和 `levels`：本周不完整时为 `null`。
+- `Overview.concentration.withoutTop1` 和 `ReportLine.withoutTop1`：独立计算去掉本周可比范围最大企业后的同星期数字，不受手工排除名单影响；视频按耗点计算，前十企业耗点占比使用 `top10PointShare`。周报涨跌说明由任务类型或视频模式的增减贡献、活跃天数生成，只描述可核验的变化。
 - 企业类型改为 `internal` 时自动加入两条线的排除列表。
 - 排除列表的默认值按 `PLAN.md` 6.5：首次导入后，每条线最近一个完整周占比 ≥ 20% 的企业写入 `settings.excluded`。之后只由用户修改。
 - `POST /api/touches/import` 接收 `GET /api/touches/export` 导出的表格，按隐藏的卡片 ID 列更新 `status`、`reply`、`sentAt`；未知 ID 计入 `skipped`。

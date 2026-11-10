@@ -16,7 +16,7 @@ export const ReportPage = () => {
   const q = useReport(week)
   const put = useCall("PUT /api/report", ["GET /api/report"])
   const r = q.data
-  const save = (k: "done" | "next", text: string) => put.mutate({ body: { week: week!, [k]: text, source: "manual" } }, { onSuccess: () => toast("已保存", { tone: "ok", ms: 1500 }), onError: (e: any) => toast(e?.missing ? "后端尚未支持编辑周报" : e.message, { tone: "error" }) })
+  const save = (k: "done" | "next", text: string) => put.mutate({ body: { week: week!, [k]: text, source: "manual" } }, { onSuccess: () => toast("已保存", { tone: "ok", ms: 1500 }), onError: (e: any) => toast(e.message, { tone: "error" }) })
   return (
     <>
       <div className="report-bar no-print">
@@ -75,7 +75,7 @@ const LineBlock = ({ l, excluded, week }: { l: ReportLine; excluded: boolean; we
   const wd = ov.data?.comparableWeekdays ?? []
   const insp = l.line === "inspiration"
   const p = pickPair(insp ? l.tasks : l.points, false)
-  const pe = (insp ? l.tasks : l.points).comparableExcluded
+  const pe = l.withoutTop1
   const cmpLabel = wd.length === 7 ? "比上周" : `同星期（${weekdaysLabel(wd)}）`
   return (
     <>

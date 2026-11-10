@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import type { Finding, InspirationAnalysis, Line, MatrixCell, Verdict, VideoAnalysis } from "@spec/contract"
-import { useCall, useFindings, useInspirationAnalysis, useVideoAnalysis } from "../api/hooks"
+import { useCall, useCrossLine, useFindings, useInspirationAnalysis, useVideoAnalysis } from "../api/hooks"
+import { navigate } from "../lib/route"
 import { useCtx } from "../lib/ctx"
 import { failureName, lineName, patternName, verdictName } from "../lib/labels"
 import { compact, num, pct, time } from "../lib/format"
@@ -10,6 +11,7 @@ import { BarList } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { Menu, Modal, Tooltip, toast } from "../ui/overlays"
 import { TaskViewer } from "./enterprise/TaskViewer"
+import { AutomationPanel } from "./AutomationPanel"
 
 const mix = (a: number[], b: number[], t: number) => a.map((x, i) => Math.round(x + (b[i] - x) * t))
 const heat = (v: number | null, base: number) => {
@@ -29,14 +31,24 @@ export const AnalysisPage = () => {
           <h1>分析</h1>
           <div className="meta">
             <span>{lineName[line]}</span>
-            {excluded && <Badge tone="accent">不含最大客户</Badge>}
+            {excluded && <Badge tone="accent">已应用排除名单</Badge>}
           </div>
         </div>
       </div>
       {line === "inspiration" ? <InspirationView week={week} excluded={excluded} /> : <VideoView week={week} excluded={excluded} />}
+      {week && <CrossLine week={week} />}
+      {week && <AutomationPanel key={`${line}:${week}`} line={line} week={week} />}
       <Findings line={line} />
     </div>
   )
+}
+
+const CrossLine = ({ week }: { week: string }) => {
+  const q = useCrossLine(week)
+  if (q.isLoading) return <Skel h={120} />
+  if (q.error || !q.data) return <ErrorState error={q.error} retry={() => q.refetch()} />
+  const groups = [{ key: "both" as const, label: "两条线都在使用", line: "inspiration" as const }, { key: "inspirationOnly" as const, label: "仅使用灵感成款", line: "inspiration" as const }, { key: "videoOnly" as const, label: "仅使用 AI 视频", line: "video" as const }]
+  return <Card title="跨线使用"><div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>{groups.map(g => <div key={g.key} className="stack" style={{ gap: 8, maxHeight: 240, overflowY: "auto" }}><span className="label">{g.label} · {q.data![g.key].length} 家</span>{q.data![g.key].map(e => <button key={e.id} className="ellipsis" style={{ textAlign: "left" }} onClick={() => navigate({ line: g.line, ent: e.id })}>{e.name}</button>)}</div>)}</div></Card>
 }
 
 const InspirationView = ({ week, excluded }: { week: string | null; excluded: boolean }) => {
@@ -304,7 +316,7 @@ const FindingEditor = ({ value, line, onClose }: { value: Finding | "new" | null
   }
   const save = () => {
     const body = { ...form, caveat: form.caveat || null, line }
-    const done = { onSuccess: () => (toast("已保存", { tone: "ok", ms: 1500 }), onClose()), onError: (e: any) => toast(e?.missing ? "后端尚未提供结论接口" : e.message, { tone: "error" }) }
+    const done = { onSuccess: () => (toast("已保存", { tone: "ok", ms: 1500 }), onClose()), onError: (e: any) => toast(e.message, { tone: "error" }) }
     if (f) patch.mutate({ params: { id: f.id }, body }, done)
     else create.mutate({ body: { ...body, rule: null } }, done)
   }

@@ -33,12 +33,12 @@ export const DataPage = () => {
 
 const Imports = () => {
   const q = useImports()
-  const { meta } = useCtx()
+  const { meta, line } = useCtx()
   const qc = useQueryClient()
   const [over, setOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
-  const refresh = () => ["GET /api/imports", "GET /api/meta", "GET /api/overview", "GET /api/enterprises"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }))
+  const refresh = () => qc.invalidateQueries()
   const upload = async (files: FileList | File[]) => {
     setBusy(true)
     try {
@@ -46,11 +46,12 @@ const Imports = () => {
         const fd = new FormData()
         fd.append("file", f)
         const job = await call("POST /api/imports", { body: fd })
+        if (job.state === "failed") throw new Error(job.error ?? "导入失败")
         toast(`${job.file}：新增 ${num(job.inserted)}，更新 ${num(job.updated)}`, { tone: "ok" })
       }
       refresh()
     } catch (e: any) {
-      toast(e?.missing ? "后端尚未提供导入接口" : e.message, { tone: "error" })
+      toast(e.message, { tone: "error" })
     } finally {
       setBusy(false)
     }
@@ -82,10 +83,10 @@ const Imports = () => {
             if (e.dataTransfer.files.length) upload(e.dataTransfer.files)
           }}
         >
-          <input ref={input} type="file" accept=".xlsx" multiple hidden onChange={(e) => e.target.files && upload(e.target.files)} />
+          <input ref={input} type="file" accept=".xlsx,.csv.gz" multiple hidden disabled={busy} onChange={(e) => { if (e.target.files) upload(e.target.files); e.target.value = "" }} />
           <span className="glyph">{busy ? <span className="btn" style={{ padding: 0, height: "auto" }}><span className="spinner" /></span> : <Icon name="upload" />}</span>
           <b style={{ color: "var(--ink)", fontWeight: 500 }}>拖入生成记录导出文件</b>
-          <span style={{ fontSize: 13.5 }}>FD生成记录导出_起始日期-结束日期.xlsx，重复导入会更新而不是新增</span>
+          <span style={{ fontSize: 13.5 }}>支持 .xlsx 和 .csv.gz，按任务主键更新记录</span>
         </div>
         <Card flush title="导入记录" actions={<Button size="sm" icon="refresh" loading={busy} onClick={scan}>扫描收件箱</Button>}>
           {q.isLoading ? (
@@ -143,7 +144,7 @@ const Imports = () => {
             ))}
             <span />
             {weeks.map((w) => {
-              const c = meta.coverage.find((x) => x.week === w && x.line === "inspiration") ?? meta.coverage.find((x) => x.week === w)
+              const c = meta.coverage.find((x) => x.week === w && x.line === line)
               const start = new Date(`${w}T00:00:00+08:00`).getTime()
               const on = new Set((c?.days ?? []).map((d) => Math.round((new Date(`${d.slice(0, 10)}T00:00:00+08:00`).getTime() - start) / 86400000)))
               return (
@@ -163,6 +164,7 @@ const Imports = () => {
           <Skel h={200} />
         )}
         {meta?.lastImportAt && <div className="faint" style={{ fontSize: 13, marginTop: 14 }}>最近导入 {time(meta.lastImportAt)}</div>}
+        <div className="faint" style={{ fontSize: 13, marginTop: 8 }}>{lineName[line]} · 状态刷新 {meta?.coverage.filter(c => c.line === line).map(c => c.refreshedAt).sort().at(-1) ? time(meta.coverage.filter(c => c.line === line).map(c => c.refreshedAt).sort().at(-1)!) : "—"}</div>
       </Card>
     </div>
   )
@@ -319,9 +321,12 @@ const SettingsForm = () => {
         <Card title="其他">
           <div className="form-row">
             <div className="lbl">
-              <span>重跑每日上限</span>
+              <span>重跑每日预算</span>
             </div>
-            <div className="ctl">{f(["rerunDailyPointLimit"], { suffix: "点", step: 50 })}</div>
+            <div className="ctl">
+              {f(["rerunDailyBudget"], { step: 0.1 })}
+              <Select value={draft.rerunCurrency} onChange={v => setDraft({ ...draft, rerunCurrency: v as Settings["rerunCurrency"] })} options={[{ value: "CNY", label: "人民币 CNY" }, { value: "USD", label: "美元 USD" }]} width={150} />
+            </div>
           </div>
           <div className="form-row">
             <div className="lbl">

@@ -44,7 +44,7 @@ def plan(store, state, today):
     missing = {day for day in days_between(START, yesterday) if day.isoformat() not in known}
     recent = set(days_between(max(START, yesterday - timedelta(days=13)), yesterday))
     refresh = {day for day in recent if state.get("days", {}).get(day.isoformat(), {}).get("refreshedFor") != today.isoformat()}
-    return sorted(missing | refresh)
+    return sorted(missing) + sorted(refresh - missing)
 
 
 def seed_verified_freshness(store, state):
@@ -114,9 +114,10 @@ def collect_day(store, state, state_path, day, today):
         if started and started == process.get("processStart"):
             raise ApiProblem(409, "collection_still_running", "上次 Codex CLI 进程仍在执行，需要等待原任务完成")
     answer = Path(prior) / "answer.json" if prior else None
+    result = None
     if answer and answer.is_file():
         result = ExportResult.model_validate_json(answer.read_text())
-    else:
+    if result is None or result.state != "done":
         run_directory = directory / ("codex-" + uuid4().hex)
         run_directory.mkdir()
         entry.update(state="running", activeRun=str(run_directory), lastRun=str(run_directory), startedAt=now())

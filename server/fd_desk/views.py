@@ -47,7 +47,8 @@ def daily(engine, line, start, end, enterprise=None):
 def roster(engine, line, week):
     from .workflow import Workflow
     rows = Workflow(engine).roster(line, week)
-    return {"line": line, "week": week, "rows": rows, "poolCounts": {pool: sum(row["pool"] == pool for row in rows) for pool in POOLS}}
+    return {"line": line, "week": week, "rows": rows, "poolCounts": {pool: sum(row["pool"] == pool for row in rows) for pool in POOLS},
+        "models": sorted(str(model) for model in engine.group(line, week).model.dropna().unique())}
 
 
 def overview(engine, line, week):
@@ -151,8 +152,11 @@ def overview(engine, line, week):
         "users": metric(lambda group: int(group.user_phone.nunique())), "tasks": metric(len),
         "points": metric(lambda group: int(group.points.sum())), "downloadRate": metric(rate),
         "failed": metric(lambda group: int(group.failed.sum())),
-        "concentration": {"top1": ref(engine.enterprises[dominant]), "top1TaskShare": ratio(int(by_enterprise.iloc[0]), len(current)),
-            "top10TaskShare": ratio(int(by_enterprise.head(10).sum()), len(current)), "top1PointShare": ratio(int(by_points.iloc[0]), int(current.points.sum()))},
+        "concentration": {"top1": ref(engine.enterprises[dominant]), "top1TaskShare": ratio(int(by_enterprise[dominant]), len(current)),
+            "top10TaskShare": ratio(int(by_enterprise.head(10).sum()), len(current)), "top1PointShare": ratio(int(by_points[dominant]), int(current.points.sum())),
+            "top10PointShare": ratio(int(by_points.head(10).sum()), int(current.points.sum())),
+            "withoutTop1": {"current": int(a[a.enterprise_id != comparable_top].points.sum()) if line == "video" else len(a[a.enterprise_id != comparable_top]),
+                "previous": int(b[b.enterprise_id != comparable_top].points.sum()) if line == "video" else len(b[b.enterprise_id != comparable_top])} if days else None},
         "history": history, "movers": movers,
         "moverCounts": {"rising": int((diff > 0).sum()), "falling": int((diff < 0).sum()),
             "largeAccounts": len(large), "largeAccountsHalved": int((comparison_tasks.reindex(large.index, fill_value=0) < large * 0.5).sum())},
@@ -209,6 +213,21 @@ def enterprise_detail(engine, enterprise_id, week):
     }
 
 
+def mover_reason(engine, line, week, mover):
+    current, previous, _ = engine.comparable(line, week, mover["enterprise"]["id"])
+    dimension = "intent" if line == "inspiration" else "mode"
+    current_values = current.groupby(dimension).size() if line == "inspiration" else current.groupby(dimension).points.sum()
+    previous_values = previous.groupby(dimension).size() if line == "inspiration" else previous.groupby(dimension).points.sum()
+    changes = current_values.sub(previous_values, fill_value=0)
+    direction = mover["current"] - mover["previous"]
+    contributors = changes[changes > 0] if direction > 0 else changes[changes < 0]
+    contributors = contributors.reindex(contributors.abs().sort_values(ascending=False).index).head(2)
+    unit = "个任务" if line == "inspiration" else "点"
+    facts = [f"{key}{'增加' if value > 0 else '减少'}{abs(int(value))}{unit}" for key, value in contributors.items()]
+    facts.append(f"活跃天数{previous.day.nunique()}→{current.day.nunique()}")
+    return "；".join(facts)
+
+
 def report(engine, week):
     from .workflow import Workflow
     lines = []
@@ -218,8 +237,9 @@ def report(engine, week):
         item = overview(engine, line, week)
         lines.append({"line": line, **{key: item[key] for key in ("stable", "activeEnterprises", "tasks", "points", "downloadRate")},
             "top1Share": item["concentration"]["top1PointShare" if line == "video" else "top1TaskShare"],
-            "falling": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": None} for mover in item["movers"]["falling"]],
-            "rising": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": None} for mover in item["movers"]["rising"]]})
+            "withoutTop1": item["concentration"]["withoutTop1"],
+            "falling": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": mover_reason(engine, line, week, mover)} for mover in item["movers"]["falling"]],
+            "rising": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": mover_reason(engine, line, week, mover)} for mover in item["movers"]["rising"]]})
     touches = Workflow(engine).touches(week=week)
     return {"week": week, "lines": lines, "touches": {"sent": sum(bool(item["sentAt"]) for item in touches),
         "replied": sum(item["status"] == "replied" for item in touches), "withOutcome": sum(item["outcome"] is not None for item in touches)},

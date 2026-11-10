@@ -16,15 +16,7 @@ export class RequestError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message)
   }
-  get missing() {
-    return this.status === 404 && this.code === "not_implemented"
-  }
 }
-
-export type Mode = "live" | "mock"
-
-let mode: Mode = "live"
-export const getMode = () => mode
 
 const build = (key: string, opts: CallOpts<any>) => {
   const [method, raw] = key.split(" ")
@@ -42,15 +34,6 @@ export const url = <K extends Key>(key: K, opts: CallOpts<K> = {}) => build(key,
 
 export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promise<Res<K>> => {
   const { method, url } = build(key, opts)
-  if (mode === "mock") {
-    const { mockFetch, MockError } = await import("../mock/handlers")
-    try {
-      return (await mockFetch(method, url, opts.body)) as Res<K>
-    } catch (e) {
-      if (e instanceof MockError) throw new RequestError(e.status, e.code, e.message)
-      throw e
-    }
-  }
   const isForm = typeof FormData !== "undefined" && opts.body instanceof FormData
   const res = await fetch(url, {
     method,
@@ -61,38 +44,12 @@ export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promi
   if (res.status === 204) return null as Res<K>
   if (!type.includes("json")) {
     if (res.ok && !type.includes("html")) return (await res.blob()) as Res<K>
-    throw new RequestError(404, "not_implemented", `${method} ${url}`)
+    throw new RequestError(res.status, "invalid_response", "本机后端返回了无效响应")
   }
   const data = await res.json()
   if (!res.ok) {
     const err = (data?.detail ?? data) as Partial<ApiError>
-    if (res.status === 405 || (res.status === 404 && (!err.code || err.code === "not_implemented" || err.message === "接口不存在"))) throw new RequestError(404, "not_implemented", `${method} ${url}`)
     throw new RequestError(res.status, err.code ?? "error", err.message ?? res.statusText)
   }
   return data as Res<K>
-}
-
-export const boot = async () => {
-  const forced = new URL(location.href).searchParams.get("mock")
-  if (forced != null) localStorage.setItem("fd-desk-mode", forced === "0" ? "live" : "mock")
-  const saved = localStorage.getItem("fd-desk-mode") as Mode | null
-  if (saved) {
-    mode = saved
-    return mode
-  }
-  try {
-    const ctl = new AbortController()
-    const t = setTimeout(() => ctl.abort(), 1200)
-    const r = await fetch("/api/meta", { signal: ctl.signal })
-    clearTimeout(t)
-    mode = r.ok && (r.headers.get("content-type") ?? "").includes("json") ? "live" : "mock"
-  } catch {
-    mode = "mock"
-  }
-  return mode
-}
-
-export const setMode = (m: Mode) => {
-  localStorage.setItem("fd-desk-mode", m)
-  location.reload()
 }

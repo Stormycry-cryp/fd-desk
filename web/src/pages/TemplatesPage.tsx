@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react"
-import type { Cluster, DraftScope, DraftStatus, TemplateDraft } from "@spec/contract"
+import { useEffect, useMemo, useState } from "react"
+import type { Cluster, DraftScope, TemplateDraft } from "@spec/contract"
 import { useClusters, useDrafts, useCall } from "../api/hooks"
 import { useCtx } from "../lib/ctx"
 import { draftStatusName, draftStatusOrder, lineName } from "../lib/labels"
@@ -40,10 +40,11 @@ export const TemplatesPage = () => {
           {meta?.fdAccount && (
             <Tooltip content={meta.fdAccount.externalShareAllowed ? "可以分享给团队外的客户成员" : "这个账号没有团队外分享权限，推送不可用"}>
               <Badge tone={meta.fdAccount.ready && meta.fdAccount.externalShareAllowed ? "up" : "warn"} dot>
-                FD 账号 {meta.fdAccount.userName ?? "未登录"}
+                FD 账号 {meta.fdAccount.userName ?? (meta.fdAccount.ready ? "已连接" : "未配置")}
               </Badge>
             </Tooltip>
           )}
+          <AccountCheck />
           <Button variant="primary" icon="plus" onClick={() => setCreating({ id: "", line, sample: "", uses: 0, enterprises: 0, downloadRate: 0, intent: null, matchedTemplate: null, candidate: true, topEnterprises: [], draftId: null })}>
             新建草稿
           </Button>
@@ -114,10 +115,12 @@ const ClusterRow = ({ c, rank, onCreate }: { c: Cluster; rank: number; onCreate:
 )
 
 const DraftItem = ({ d }: { d: TemplateDraft }) => {
+  const { meta } = useCtx()
   const patch = useCall("PATCH /api/drafts/:id", ["GET /api/drafts"])
   const [push, setPush] = useState(false)
   const [editing, setEditing] = useState(false)
-  const set = (body: Parameters<typeof patch.mutate>[0]["body"]) => patch.mutate({ params: { id: d.id }, body: { ...body, source: "manual" } }, { onError: (e: any) => toast(e?.missing ? "后端尚未提供模板接口" : e.message, { tone: "error" }) })
+  const [publishing, setPublishing] = useState(false)
+  const set = (body: Parameters<typeof patch.mutate>[0]["body"]) => patch.mutate({ params: { id: d.id }, body: { ...body, source: "manual" } }, { onError: (e: any) => toast(e.message, { tone: "error" }) })
   return (
     <div className="draft-item">
       <div className="row" style={{ alignItems: "flex-start" }}>
@@ -157,7 +160,7 @@ const DraftItem = ({ d }: { d: TemplateDraft }) => {
           ))}
         </div>
       )}
-      <Stepper steps={draftStatusOrder} value={d.status} labels={draftStatusName} onChange={(s: DraftStatus) => set({ status: s })} />
+      <Stepper steps={draftStatusOrder} value={d.status} labels={draftStatusName} />
       {d.link ? <CopyField value={d.link} open /> : null}
       <div className="row" style={{ gap: 8 }}>
         {d.pushedTo.length > 0 && (
@@ -166,12 +169,16 @@ const DraftItem = ({ d }: { d: TemplateDraft }) => {
           </span>
         )}
         <span className="spacer" />
-        <Button size="sm" variant={d.status === "tested" || d.status === "published" ? "primary" : "secondary"} icon="send" onClick={() => setPush(true)} disabled={!d.sourceEnterprises.length && d.scope === "owner"}>
+        {d.status === "draft" && <Button size="sm" onClick={() => set({ status: "tested" })}>标记已测试</Button>}
+        {d.line === "inspiration" && !d.fdTemplateId && <Button size="sm" onClick={() => setPublishing(true)}>发布到 FD</Button>}
+        <Button size="sm" variant={d.status === "published" ? "primary" : "secondary"} icon="send" onClick={() => setPush(true)} disabled={!meta?.fdAccount.ready || !meta.fdAccount.externalShareAllowed || d.line !== "inspiration" || !d.fdTemplateId || (!d.sourceEnterprises.length && d.scope === "owner")}>
           推送
         </Button>
       </div>
+      {d.line === "video" && <span className="faint">视频模板保存在本机，FD 分享接口当前支持灵感成款</span>}
       <PushModal open={push} onClose={() => setPush(false)} draft={d} enterprises={d.sourceEnterprises.map((e) => e.id)} />
       <EditDraft d={d} open={editing} onClose={() => setEditing(false)} />
+      <PublishDraft d={d} open={publishing} onClose={() => setPublishing(false)} />
     </div>
   )
 }
@@ -181,10 +188,15 @@ const EditDraft = ({ d, open, onClose }: { d: TemplateDraft; open: boolean; onCl
   const [title, setTitle] = useState(d.title.text)
   const [prompt, setPrompt] = useState(d.prompt.text)
   const [slots, setSlots] = useState(d.slots.join("、"))
-  const [fd, setFd] = useState(d.fdTemplateId ? String(d.fdTemplateId) : "")
+  useEffect(() => {
+    if (!open) return
+    setTitle(d.title.text)
+    setPrompt(d.prompt.text)
+    setSlots(d.slots.join("、"))
+  }, [open, d.id])
   const save = () =>
     patch.mutate(
-      { params: { id: d.id }, body: { title, prompt, slots: slots.split(/[、,，]/).map((s) => s.trim()).filter(Boolean), fdTemplateId: fd ? Number(fd) : null, fdTemplateSource: fd ? d.fdTemplateSource ?? "managed" : null, source: "manual" } },
+      { params: { id: d.id }, body: { title, prompt, slots: slots.split(/[、,，]/).map((s) => s.trim()).filter(Boolean), source: "manual" } },
       { onSuccess: () => (toast("已保存", { tone: "ok", ms: 1500 }), onClose()), onError: (e: any) => toast(e.message, { tone: "error" }) },
     )
   return (
@@ -198,14 +210,10 @@ const EditDraft = ({ d, open, onClose }: { d: TemplateDraft; open: boolean; onCl
           <span className="label">提示词</span>
           <TextArea value={prompt} onChange={(e) => setPrompt(e.target.value)} style={{ minHeight: 120 }} />
         </div>
-        <div className="grid" style={{ gridTemplateColumns: "1fr 160px", gap: 12 }}>
+        <div>
           <div>
             <span className="label">图片槽位</span>
             <Input value={slots} onChange={(e) => setSlots(e.target.value)} placeholder="服装图、面料图" />
-          </div>
-          <div>
-            <span className="label">FD 模板 ID</span>
-            <Input value={fd} onChange={(e) => setFd(e.target.value.replace(/\D/g, ""))} placeholder="推送后自动填" />
           </div>
         </div>
       </div>
@@ -225,12 +233,13 @@ const CreateDraft = ({ cluster, onClose }: { cluster: Cluster | null; onClose: (
     setLast(cluster.id)
     setTitle(cluster.intent ? `${cluster.intent}` : "")
     setPrompt(cluster.sample)
-    setScope("owner")
+    setScope(cluster.id ? "owner" : "general")
+    setSlots("服装图")
   }
   const submit = () =>
     create.mutate(
-      { body: { line, title: title || prompt.slice(0, 10), prompt, slots: slots.split(/[、,，]/).map((s) => s.trim()).filter(Boolean), clusterId: cluster?.id || undefined, scene: cluster?.intent ?? undefined, source: "manual" } },
-      { onSuccess: () => (toast("草稿已创建", { tone: "ok" }), setLast(null), onClose()), onError: (e: any) => toast(e?.missing ? "后端尚未提供模板接口" : e.message, { tone: "error" }) },
+      { body: { line, title: title || prompt.slice(0, 10), prompt, slots: slots.split(/[、,，]/).map((s) => s.trim()).filter(Boolean), clusterId: cluster?.id || undefined, scene: cluster?.intent ?? undefined, scope, source: "manual" } },
+      { onSuccess: () => (toast("草稿已创建", { tone: "ok" }), setLast(null), onClose()), onError: (e: any) => toast(e.message, { tone: "error" }) },
     )
   return (
     <Modal open={!!cluster} onClose={() => (setLast(null), onClose())} title="做成模板" sub={cluster?.uses ? `这句提示词本周被用了 ${cluster.uses} 次，${pct(cluster.downloadRate)} 下载` : undefined} width={560} footer={<><Button variant="ghost" onClick={() => (setLast(null), onClose())}>取消</Button><Button variant="primary" disabled={!prompt.trim()} loading={create.isPending} onClick={submit}>创建草稿</Button></>}>
@@ -249,7 +258,7 @@ const CreateDraft = ({ cluster, onClose }: { cluster: Cluster | null; onClose: (
         </div>
         <div>
           <span className="label">范围</span>
-          <RadioGroup
+          {cluster?.id ? <RadioGroup
             cards
             value={scope}
             onChange={setScope}
@@ -257,11 +266,33 @@ const CreateDraft = ({ cluster, onClose }: { cluster: Cluster | null; onClose: (
               { value: "owner", label: "仅来源企业", hint: cluster?.topEnterprises.length ? `${cluster.topEnterprises.map((e) => e.enterprise.name).slice(0, 2).join("、")}${cluster.topEnterprises.length > 2 ? " 等" : ""}` : "只能推给提示词的来源企业" },
               { value: "general", label: "通用", hint: "已去掉客户特有内容，可以推给任何企业" },
             ]}
-          />
+          /> : <Badge tone="accent">通用</Badge>}
         </div>
       </div>
     </Modal>
   )
+}
+
+const AccountCheck = () => {
+  const check = useCall("POST /api/fd-account/check", ["GET /api/meta"])
+  return <Button loading={check.isPending} onClick={() => check.mutate({}, { onSuccess: a => toast(a.externalShareAllowed ? "账号具备外部分享权限" : "账号缺少外部分享权限", { tone: a.externalShareAllowed ? "ok" : "error" }), onError: e => toast(e.message, { tone: "error" }) })}>检查 FD 账号</Button>
+}
+
+const PublishDraft = ({ d, open, onClose }: { d: TemplateDraft; open: boolean; onClose: () => void }) => {
+  const publish = useCall("POST /api/drafts/:id/publish", ["GET /api/drafts"])
+  const [scene, setScene] = useState("")
+  const [model, setModel] = useState("")
+  const [image, setImage] = useState("")
+  const [error, setError] = useState<Error | null>(null)
+  const submit = () => publish.mutate({ params: { id: d.id }, body: { sceneId: Number(scene), model: model.trim(), templateImg: image.trim() || undefined } }, { onSuccess: () => { toast("FD 团队模板已发布", { tone: "ok" }); onClose() }, onError: setError })
+  return <Modal open={open} onClose={onClose} title="发布到 FD" sub={d.title.text} width={500} footer={<><Button variant="ghost" onClick={onClose}>取消</Button><Button variant="primary" loading={publish.isPending} disabled={!Number.isSafeInteger(Number(scene)) || Number(scene) < 1 || !model.trim()} onClick={submit}>确认发布</Button></>}>
+    <div className="stack" style={{ gap: 14 }}>
+      {error && <ErrorState error={error} />}
+      <div><span className="label">FD 场景 ID</span><Input value={scene} inputMode="numeric" onChange={e => setScene(e.target.value)} placeholder="填写 FD 中的真实场景 ID" /></div>
+      <div><span className="label">FD 模型 ID</span><Input value={model} onChange={e => setModel(e.target.value)} placeholder="填写该场景支持的模型 ID" /></div>
+      <div><span className="label">封面地址，可选</span><Input value={image} onChange={e => setImage(e.target.value)} type="url" /></div>
+    </div>
+  </Modal>
 }
 
 const ListSkeleton = () => (

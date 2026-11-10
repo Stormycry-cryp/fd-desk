@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
 import type { AlertKind, EnterpriseDetail, Line, Roster, Touch, TouchBoard, TouchSlot } from "@spec/contract"
 import { call, RequestError, type CallOpts, type Res } from "./client"
 import type { Api } from "@spec/contract"
@@ -9,13 +9,12 @@ const q = <K extends Key>(key: K, opts: CallOpts<K> = {}, enabled = true) => ({
   queryKey: [key, opts.params ?? null, opts.query ?? null] as QueryKey,
   queryFn: () => call(key, opts),
   enabled,
-  placeholderData: keepPreviousData,
-  retry: (n: number, e: unknown) => !(e instanceof RequestError && (e.missing || e.status < 500)) && n < 2,
+  retry: (n: number, e: unknown) => !(e instanceof RequestError && e.status < 500) && n < 2,
 })
 
 export const useMeta = () => useQuery({ ...q("GET /api/meta"), staleTime: 60000 })
 export const useOverview = (line: Line, week?: string | null) => useQuery(q("GET /api/overview", { query: { line, week: week ?? "" } }, !!week))
-export const useRoster = (line: Line, week?: string | null) => useQuery(q("GET /api/enterprises", { query: { line, week: week ?? "" } }, !!week))
+export const useRoster = (line: Line, week?: string | null, model?: string) => useQuery(q("GET /api/enterprises", { query: { line, week: week ?? "", ...(model ? { model } : {}) } }, !!week))
 export const useEnterprise = (id: string | null, week?: string | null) => useQuery(q("GET /api/enterprises/:id", { params: { id: id ?? "" }, query: { week: week ?? "" } }, !!id && !!week))
 export const useTasks = (opts: CallOpts<"GET /api/tasks">["query"], enabled = true) => useQuery(q("GET /api/tasks", { query: opts }, enabled && !!opts?.week))
 export const useChains = (opts: CallOpts<"GET /api/chains">["query"], enabled = true) => useQuery(q("GET /api/chains", { query: opts }, enabled && !!opts?.week))
@@ -31,6 +30,8 @@ export const useReport = (week?: string | null) => useQuery(q("GET /api/report",
 export const useImports = () => useQuery(q("GET /api/imports"))
 export const useSettings = () => useQuery(q("GET /api/settings"))
 export const useConversion = (line: Line) => useQuery(q("GET /api/conversion", { query: { line } }))
+export const useCrossLine = (week?: string | null) => useQuery(q("GET /api/cross-line", { query: { week: week ?? "" } }, !!week))
+export const useReruns = (enterprise: string) => useQuery({ ...q("GET /api/reruns", { query: { enterprise } }), refetchInterval: (query) => query.state.data?.some(r => r.state === "confirmed" || r.state === "running") ? 1500 : false })
 
 export const useCall = <K extends Key>(key: K, invalidate: Key[] = [], extra?: { onSuccess?: (data: Res<K>, vars: CallOpts<K>) => void }) => {
   const qc = useQueryClient()

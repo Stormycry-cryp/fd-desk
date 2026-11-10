@@ -84,7 +84,7 @@ const Header = ({ d, week, page }: { d: EnterpriseDetail; week: string; page?: b
       { params: { id: d.enterprise.id }, body, query: { week } } as any,
       {
         onSuccess: () => toast(msg, { tone: "ok", ms: 1800 }),
-        onError: (e: any) => toast(e?.missing ? "后端尚未支持修改" : `保存失败：${e.message}`, { tone: "error" }),
+        onError: (e: any) => toast(`保存失败：${e.message}`, { tone: "error" }),
       },
     )
   void qc
@@ -126,8 +126,10 @@ const Header = ({ d, week, page }: { d: EnterpriseDetail; week: string; page?: b
         </span>
         <span>
           <Icon name="user" size="xs" />
-          销售 {d.owner.sales ?? <span className="faint">未分配</span>}
-          {d.owner.afterSales && <span className="faint">· 售后 {d.owner.afterSales}</span>}
+          运营 <InlineEdit value={d.owner.sales ?? ""} placeholder="未分配" multiline={false} onSave={text => save({ owner: { ...d.owner, sales: text || null } }, "已更新运营负责人")} />
+        </span>
+        <span>
+          售后 <InlineEdit value={d.owner.afterSales ?? ""} placeholder="未分配" multiline={false} onSave={text => save({ owner: { ...d.owner, afterSales: text || null } }, "已更新售后负责人")} />
         </span>
         <span>
           <Icon name="clock" size="xs" />
@@ -148,6 +150,7 @@ const Header = ({ d, week, page }: { d: EnterpriseDetail; week: string; page?: b
 
 const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: string }) => {
   const insp = ld.line === "inspiration"
+  const largestGap = ld.breakdown.filter(b => b.downloadRate != null && b.peerMedianDownloadRate != null && b.downloadRate < b.peerMedianDownloadRate).sort((a, b) => (a.downloadRate! - a.peerMedianDownloadRate!) - (b.downloadRate! - b.peerMedianDownloadRate!))[0]?.key
   const put = usePutNextAction(ld.line, week)
   const hist = ld.history
   const first = hist.findIndex((h) => h.tasks > 0)
@@ -177,7 +180,7 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
             onSave={(text) =>
               put.mutate(
                 { id: d.enterprise.id, text },
-                { onSuccess: () => toast("已保存", { tone: "ok", ms: 1600 }), onError: (e: any) => toast(e?.missing ? "后端尚未支持保存" : e?.code === "manual_locked" ? "已有手工内容" : `保存失败：${e.message}`, { tone: "error" }) },
+                { onSuccess: () => toast("已保存", { tone: "ok", ms: 1600 }), onError: (e: any) => toast(e?.code === "manual_locked" ? "已有手工内容" : `保存失败：${e.message}`, { tone: "error" }) },
               )
             }
           />
@@ -213,7 +216,7 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
                 const gap = b.downloadRate != null && b.peerMedianDownloadRate != null ? b.downloadRate - b.peerMedianDownloadRate : null
                 return (
                   <tr key={b.key}>
-                    <td>{b.key}</td>
+                    <td>{b.key} {b.key === largestGap && <Badge tone="warn">差距最大</Badge>}</td>
                     <td className="r num">{num(b.tasks)}</td>
                     <td className="r num faint">{pct(b.share)}</td>
                     <td>
@@ -258,7 +261,7 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
         )}
       </div>
       <Chains id={d.enterprise.id} line={ld.line} week={week} />
-      <Samples id={d.enterprise.id} line={ld.line} week={week} />
+      <Samples key={`${d.enterprise.id}:${ld.line}:${week}`} id={d.enterprise.id} line={ld.line} week={week} ld={ld} />
     </>
   )
 }
@@ -287,7 +290,7 @@ const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) =>
   const q = useChains({ line, week, enterprise: id, minLength: 3, downloaded: false })
   const [view, setView] = useState<{ tasks: Task[]; i: number } | null>(null)
   const items = q.data?.items ?? []
-  if (q.error && (q.error as any).missing) return null
+  if (q.error) return <ErrorState error={q.error} retry={() => q.refetch()} />
   return (
     <div className="ent-section">
       <h4>
@@ -333,9 +336,15 @@ const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) =>
   )
 }
 
-const Samples = ({ id, line, week }: { id: string; line: Line; week: string }) => {
+const Samples = ({ id, line, week, ld }: { id: string; line: Line; week: string; ld: LineDetail }) => {
   const [reason, setReason] = useState<SampleReason | "all">("all")
-  const q = useTasks({ line, week, enterprise: id, sample: 6 })
+  const [mode, setMode] = useState<"sample" | "full">("sample")
+  const [offset, setOffset] = useState(0)
+  const [model, setModel] = useState("all")
+  const [category, setCategory] = useState("all")
+  const [status, setStatus] = useState("all")
+  const [user, setUser] = useState("all")
+  const q = useTasks({ line, week, enterprise: id, sample: mode === "sample" ? 2 : undefined, limit: 50, offset: mode === "sample" ? undefined : offset, model: mode === "full" && model !== "all" ? model : undefined, intent: mode === "full" && line === "inspiration" && category !== "all" ? category : undefined, mode: mode === "full" && line === "video" && category !== "all" ? category : undefined, downloaded: mode === "full" && (status === "downloaded" || status === "not_downloaded") ? status === "downloaded" : undefined, failed: mode === "full" && status === "failed" ? true : undefined, user: mode === "full" && user !== "all" ? user : undefined })
   const [view, setView] = useState<number | null>(null)
   const items = q.data?.items ?? []
   const counts = useMemo(() => {
@@ -343,20 +352,27 @@ const Samples = ({ id, line, week }: { id: string; line: Line; week: string }) =
     items.forEach((t) => t.sampleReason && m.set(t.sampleReason, (m.get(t.sampleReason) ?? 0) + 1))
     return m
   }, [items])
-  const shown = reason === "all" ? items : items.filter((t) => t.sampleReason === reason)
+  const shown = mode === "full" || reason === "all" ? items : items.filter((t) => t.sampleReason === reason)
   return (
     <div className="ent-section">
       <h4>
-        任务抽样
-        <span className="sub">{q.data ? `本周 ${num(q.data.total)} 个任务中按情况抽取` : ""}</span>
+        {mode === "sample" ? "任务抽样" : "完整任务列表"}
+        <span className="sub">{q.data ? `${num(q.data.total)} 个任务` : ""}</span>
+        <span className="spacer" />
+        <Segmented size="sm" value={mode} onChange={v => { setMode(v); setView(null); setOffset(0) }} options={[{ value: "sample", label: "分层抽样" }, { value: "full", label: "完整列表" }]} />
       </h4>
       <div style={{ marginBottom: 14 }}>
-        <Segmented
+        {mode === "sample" ? <Segmented
           size="sm"
           value={reason}
           onChange={setReason}
           options={[{ value: "all" as const, label: "全部", count: items.length }, ...sampleOrder.filter((r) => counts.get(r)).map((r) => ({ value: r, label: sampleReasonName[r], count: counts.get(r) }))]}
-        />
+        /> : <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <Select size="sm" value={model} onChange={v => { setModel(v); setOffset(0); setView(null) }} prefix="模型" options={[{ value: "all", label: "全部" }, ...ld.models.map(m => ({ value: m.model, label: m.model }))]} />
+          <Select size="sm" value={category} onChange={v => { setCategory(v); setOffset(0); setView(null) }} prefix={line === "inspiration" ? "任务类型" : "模式"} options={[{ value: "all", label: "全部" }, ...ld.breakdown.map(b => ({ value: b.key, label: b.key }))]} />
+          <Select size="sm" value={status} onChange={v => { setStatus(v); setOffset(0); setView(null) }} prefix="结果" options={[{ value: "all", label: "全部" }, { value: "downloaded", label: "已下载" }, { value: "not_downloaded", label: "未下载" }, { value: "failed", label: "失败" }]} />
+          <Select size="sm" value={user} onChange={v => { setUser(v); setOffset(0); setView(null) }} prefix="成员" options={[{ value: "all", label: "全部" }, ...ld.members.map(m => ({ value: m.id, label: m.name }))]} />
+        </div>}
       </div>
       {q.isLoading ? (
         <div className="task-grid">
@@ -368,7 +384,7 @@ const Samples = ({ id, line, week }: { id: string; line: Line; week: string }) =
             </div>
           ))}
         </div>
-      ) : shown.length ? (
+      ) : q.error ? <ErrorState error={q.error} retry={() => q.refetch()} /> : shown.length ? (
         <div className="task-grid">
           {shown.map((t) => (
             <TaskCard key={t.rowKey} t={t} onOpen={() => setView(shown.indexOf(t))} />
@@ -377,6 +393,7 @@ const Samples = ({ id, line, week }: { id: string; line: Line; week: string }) =
       ) : (
         <span className="faint">没有任务</span>
       )}
+      {mode === "full" && q.data && <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 12 }}><span className="faint num">{offset + (shown.length ? 1 : 0)}–{offset + shown.length} / {q.data.total}</span><Button size="sm" disabled={!offset || q.isFetching} onClick={() => { setOffset(offset - 50); setView(null) }}>上一页</Button><Button size="sm" disabled={offset + 50 >= q.data.total || q.isFetching} onClick={() => { setOffset(offset + 50); setView(null) }}>下一页</Button></div>}
       <TaskViewer tasks={shown} index={view} onClose={() => setView(null)} />
     </div>
   )
@@ -475,7 +492,7 @@ const Notes = ({ d }: { d: EnterpriseDetail }) => {
   const del = useCall("DELETE /api/notes/:id", ["GET /api/enterprises/:id"])
   const submit = () => {
     if (!text.trim()) return
-    add.mutate({ params: { id: d.enterprise.id }, body: { text: text.trim() } }, { onSuccess: () => setText(""), onError: (e: any) => toast(e?.missing ? "后端尚未支持备注" : e.message, { tone: "error" }) })
+    add.mutate({ params: { id: d.enterprise.id }, body: { text: text.trim() } }, { onSuccess: () => setText(""), onError: (e: any) => toast(e.message, { tone: "error" }) })
   }
   return (
     <div className="ent-section" style={{ paddingBottom: 32 }}>
@@ -533,7 +550,8 @@ const EntDaily = ({ id, line }: { id: string; line: Line }) => {
   const days = q.data ?? []
   const insp = line === "inspiration"
   const active = days.filter((d) => d.covered && d.tasks > 0).length
-  if (q.error || (!q.isLoading && !days.length)) return null
+  if (q.error) return <ErrorState error={q.error} retry={() => q.refetch()} />
+  if (!q.isLoading && !days.length) return null
   return (
     <div className="ent-section">
       <h4>

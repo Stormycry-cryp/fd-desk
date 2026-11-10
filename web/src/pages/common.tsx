@@ -19,7 +19,7 @@ export const CmpFoot = ({ m, excluded, kind = "num", weekdays, invert }: { m: Me
           <div className="num">
             上周 {fmt(p.previous, kind)} → 本周 {fmt(p.current, kind)}
           </div>
-          {excluded && m?.comparableExcluded && <div className="muted">不含最大客户</div>}
+          {excluded && m?.comparableExcluded && <div className="muted">已应用排除名单</div>}
         </>
       }
     >

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { OfferKind, Pool, Touch, TouchSlot, TouchStatus } from "@spec/contract"
-import { useDrafts, usePatchTouch, useTouches, useCall } from "../api/hooks"
+import { useDrafts, usePatchTouch, useReruns, useRoster, useTouches, useCall } from "../api/hooks"
 import { call, url } from "../api/client"
 import { useCtx } from "../lib/ctx"
 import { lineName, offerName, poolName, poolOrder, slotHint, slotName, touchStatusName, touchStatusOrder } from "../lib/labels"
@@ -34,7 +34,7 @@ export const TouchesPage = () => {
   const move = (id: string, slot: TouchSlot) => {
     const t = all.find((x) => x.id === id)
     if (!t || (t.slot === slot && !t.suggested)) return
-    patch.mutate({ id, body: { slot, suggested: false } }, { onError: (e: any) => toast(e?.missing ? "后端尚未提供触达接口" : e.message, { tone: "error" }) })
+    patch.mutate({ id, body: { slot, suggested: false } }, { onError: (e: any) => toast(e.message, { tone: "error" }) })
   }
   const accept = (t: Touch) => patch.mutate({ id: t.id, body: { suggested: false } }, { onSuccess: () => toast(`已放入${slotName[t.slot]}`, { tone: "ok", ms: 1600 }) })
   const dismiss = useCall("DELETE /api/touches/:id", ["GET /api/touches"])
@@ -43,10 +43,11 @@ export const TouchesPage = () => {
     fd.append("file", f)
     try {
       const r = await call("POST /api/touches/import", { body: fd })
+      if (r.errors.length) throw new Error(r.errors.join("；"))
       toast(`回填 ${r.updated} 张卡片${r.skipped ? `，跳过 ${r.skipped}` : ""}`, { tone: "ok" })
-      qc.invalidateQueries({ queryKey: ["GET /api/touches"] })
+      qc.invalidateQueries()
     } catch (e: any) {
-      toast(e?.missing ? "后端尚未提供回填接口" : e.message, { tone: "error" })
+      toast(e.message, { tone: "error" })
     }
   }
   const stats = useMemo(() => {
@@ -171,13 +172,13 @@ export const TouchesPage = () => {
           </div>
         </>
       )}
-      <TouchEditor t={current} onClose={() => setOpenId(null)} />
+      <TouchEditor key={current?.id ?? "closed"} t={current} onClose={() => setOpenId(null)} />
     </div>
   )
 }
 
 const TouchCard = ({ t, open, dragging, onOpen, onDragStart, onDragEnd }: { t: Touch; open: boolean; dragging: boolean; onOpen: () => void; onDragStart: () => void; onDragEnd: () => void }) => (
-  <div className={cx("tcard", open && "open", dragging && "dragging")} draggable onClick={onOpen} onDragStart={(e) => (e.dataTransfer.setData("text/plain", t.id), (e.dataTransfer.effectAllowed = "move"), onDragStart())} onDragEnd={onDragEnd}>
+  <div className={cx("tcard", open && "open", dragging && "dragging")} data-touch-id={t.id} draggable onClick={onOpen} onDragStart={(e) => (e.dataTransfer.setData("text/plain", t.id), (e.dataTransfer.effectAllowed = "move"), onDragStart())} onDragEnd={onDragEnd}>
     <Icon name="grip" size="sm" className="grip" />
     <div className="top-row">
       <PoolTag p={t.goal} />
@@ -216,7 +217,7 @@ const TouchEditor = ({ t, onClose }: { t: Touch | null; onClose: () => void }) =
   const [push, setPush] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const [reply, setReply] = useState<string | null>(null)
-  const set = (body: Parameters<typeof patch.mutate>[0]["body"]) => t && patch.mutate({ id: t.id, body }, { onError: (e: any) => toast(e?.missing ? "后端尚未提供触达接口" : e.message, { tone: "error" }) })
+  const set = (body: Parameters<typeof patch.mutate>[0]["body"]) => t && patch.mutate({ id: t.id, body }, { onError: (e: any) => toast(e.message, { tone: "error" }) })
   const tpl = t?.offer.draftId ? drafts.data?.find((d) => d.id === t.offer.draftId) ?? null : null
   return (
     <Drawer
@@ -270,19 +271,19 @@ const TouchEditor = ({ t, onClose }: { t: Touch | null; onClose: () => void }) =
           <div>
             <span className="label">带去的东西</span>
             <div className="stack" style={{ gap: 10 }}>
-              <Segmented size="sm" value={t.offer.kind} onChange={(k) => set({ offer: { ...t.offer, kind: k as OfferKind } })} options={(Object.keys(offerName) as OfferKind[]).map((k) => ({ value: k, label: offerName[k] }))} />
+              <Segmented size="sm" value={t.offer.kind} onChange={(k) => set({ offer: { kind: k as OfferKind, draftId: null, rerunId: null, link: null, text: null } })} options={(Object.keys(offerName) as OfferKind[]).map((k) => ({ value: k, label: offerName[k] }))} />
               {t.offer.kind === "template" ? (
                 <>
-                  <Select value={t.offer.draftId} placeholder="选择模板草稿" onChange={(v) => set({ offer: { ...t.offer, draftId: v } })} options={(drafts.data ?? []).map((d) => ({ value: d.id, label: d.title.text, hint: d.scope === "general" ? "通用" : "仅来源企业" }))} width="100%" />
+                  <Select value={t.offer.draftId} placeholder="选择模板草稿" onChange={(v) => { const d = drafts.data?.find(d => d.id === v); set({ offer: { ...t.offer, draftId: v, link: d?.link ?? null, text: d?.title.text ?? null } }) }} options={(drafts.data ?? []).filter(d => d.scope === "general" || d.sourceEnterprises.some(e => e.id === t.enterprise.id)).map((d) => ({ value: d.id, label: d.title.text, hint: d.scope === "general" ? "通用" : "仅来源企业" }))} width="100%" />
                   {tpl?.link && <CopyField value={tpl.link} open />}
-                  {tpl && (
+                  {tpl?.fdTemplateId && tpl.line === "inspiration" && (
                     <Button icon="send" variant="soft" onClick={() => setPush(true)}>
                       推送给这家企业
                     </Button>
                   )}
                 </>
-              ) : (
-                <Input key={`${t.id}${t.offer.kind}`} defaultValue={t.offer.text ?? ""} placeholder={t.offer.kind === "comparison" ? "对比说明" : t.offer.kind === "question" ? "要问他的问题" : "建议内容"} onBlur={(e) => e.target.value !== (t.offer.text ?? "") && set({ offer: { ...t.offer, text: e.target.value } })} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+              ) : t.offer.kind === "comparison" ? <ComparisonPicker t={t} onChange={offer => set({ offer })} /> : (
+                <Input key={`${t.id}${t.offer.kind}`} defaultValue={t.offer.text ?? ""} placeholder={t.offer.kind === "question" ? "要问他的问题" : "建议内容"} onBlur={(e) => e.target.value !== (t.offer.text ?? "") && set({ offer: { ...t.offer, text: e.target.value } })} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
               )}
             </div>
           </div>
@@ -345,16 +346,20 @@ const NewTouch = () => {
   const [ent, setEnt] = useState<string | null>(null)
   const [slot, setSlot] = useState<TouchSlot>("mon")
   const [goal, setGoal] = useState<Pool>("retain")
-  const roster = qc.getQueryData<any>(["GET /api/enterprises", null, { line, week }])
+  const roster = useRoster(line, week)
+  const [busy, setBusy] = useState(false)
   const create = async () => {
     if (!ent) return
+    setBusy(true)
     try {
       await call("POST /api/touches", { body: { line, week: week!, slot, enterprise: ent, goal, source: "manual" } })
       qc.invalidateQueries({ queryKey: ["GET /api/touches"] })
       setOpen(false)
       setEnt(null)
     } catch (e: any) {
-      toast(e?.missing ? "后端尚未提供触达接口" : e.message, { tone: "error" })
+      toast(e.message, { tone: "error" })
+    } finally {
+      setBusy(false)
     }
   }
   return (
@@ -372,7 +377,7 @@ const NewTouch = () => {
             <Button variant="ghost" onClick={() => setOpen(false)}>
               取消
             </Button>
-            <Button variant="primary" disabled={!ent} onClick={create}>
+            <Button variant="primary" disabled={!ent} loading={busy} onClick={create}>
               创建
             </Button>
           </>
@@ -383,9 +388,9 @@ const NewTouch = () => {
             <span className="label">企业</span>
             <Select value={ent} placeholder="搜索企业" search onChange={(v) => {
               setEnt(v)
-              const r = roster?.rows?.find((x: any) => x.enterprise.id === v)
+              const r = roster.data?.rows.find(x => x.enterprise.id === v)
               if (r?.pool) setGoal(r.pool)
-            }} options={(roster?.rows ?? []).map((r: any) => ({ value: r.enterprise.id, label: r.enterprise.name, hint: r.pool ? poolName[r.pool as Pool] : undefined }))} width="100%" popWidth={380} />
+            }} options={(roster.data?.rows ?? []).map(r => ({ value: r.enterprise.id, label: r.enterprise.name, hint: r.pool ? poolName[r.pool] : undefined }))} width="100%" popWidth={380} />
           </div>
           <div>
             <span className="label">时段</span>
@@ -399,6 +404,17 @@ const NewTouch = () => {
       </Drawer>
     </>
   )
+}
+
+const ComparisonPicker = ({ t, onChange }: { t: Touch; onChange: (offer: Touch["offer"]) => void }) => {
+  const q = useReruns(t.enterprise.id)
+  const rows = q.data?.filter(r => r.state === "done" && r.sourceTask.line === t.line) ?? []
+  return <div className="stack" style={{ gap: 8 }}>
+    {!!q.error && <ErrorState error={q.error} retry={() => q.refetch()} />}
+    <Select value={t.offer.rerunId} placeholder="选择已完成的重跑对比" onChange={id => onChange({ ...t.offer, rerunId: id })} options={rows.map(r => ({ value: r.id, label: r.prompt.slice(0, 40), hint: r.model }))} width="100%" />
+    <Input defaultValue={t.offer.text ?? ""} placeholder="对比说明" onBlur={e => e.target.value !== (t.offer.text ?? "") && onChange({ ...t.offer, text: e.target.value })} />
+    {!rows.length && <span className="faint">在企业任务详情中完成重跑后可以关联结果</span>}
+  </div>
 }
 
 const BoardSkeleton = () => (

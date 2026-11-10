@@ -29,7 +29,7 @@ def test_daily_plan_preserves_missing_dates_and_refreshes_interrupted_day(client
     assert collector.plan(store, state, today) == expected
     day = max(date.fromisoformat(value) for value in coverage)
     state["days"].pop(day.isoformat())
-    assert collector.plan(store, state, today) == sorted(set(expected) | {day})
+    assert collector.plan(store, state, today) == expected + [day]
 
 
 def test_daily_process_lock_prevents_duplicate_collection(client):

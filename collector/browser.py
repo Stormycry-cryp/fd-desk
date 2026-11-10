@@ -15,12 +15,20 @@ def main():
     args = parser.parse_args()
     marker = ROOT / "data/collector/browser.json"
     marker.parent.mkdir(parents=True, exist_ok=True)
-    if not marker.is_file():
+    if marker.is_file():
+        identity = json.loads(marker.read_text())
+        found = subprocess.run(["osascript", str(BRIDGE), "find", str(identity["tabId"])], check=True, capture_output=True, text=True)
+        location = json.loads(found.stdout)
+    else:
+        location = None
+    if location is None:
         created = subprocess.run(["osascript", str(BRIDGE), "open"], check=True, capture_output=True, text=True)
         marker.write_text(json.dumps({"tabId": int(created.stdout)}))
-    identity = json.loads(marker.read_text())
-    found = subprocess.run(["osascript", str(BRIDGE), "find", str(identity["tabId"])], check=True, capture_output=True, text=True)
-    window, tab = json.loads(found.stdout)
+        found = subprocess.run(["osascript", str(BRIDGE), "find", created.stdout.strip()], check=True, capture_output=True, text=True)
+        location = json.loads(found.stdout)
+    if location is None:
+        raise RuntimeError("新建的 FD 页面无法定位")
+    window, tab = location
     if args.script:
         script = args.script.resolve()
         if not script.is_relative_to((ROOT / "data").resolve()):
