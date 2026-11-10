@@ -1,5 +1,6 @@
 import io
 import tempfile
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from threading import RLock
@@ -44,6 +45,7 @@ from .models import (
     TouchPatch,
 )
 from .pushes import Pushes, public
+from .query_cache import QueryCache
 from .reruns import Reruns
 from .store import Store
 from .workflow import Workflow
@@ -62,6 +64,7 @@ def create_app(directory=None):
     pushes = Pushes(workflow)
     reruns = Reruns(engine, thumbnails)
     automation = Automation(workflow)
+    queries = QueryCache(store)
     with store.connection() as conn:
         for table in ("pushes", "reruns", "automation_jobs"):
             for item in store.items(table):
@@ -69,9 +72,17 @@ def create_app(directory=None):
                     item["state"] = "failed" if table == "automation_jobs" else "uncertain"
                     store.save(table, item, conn)
     lock = RLock()
-    app = FastAPI(title="FD 客户中台", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
+    @asynccontextmanager
+    async def lifespan(app):
+        try:
+            yield
+        finally:
+            store.close()
+
+    app = FastAPI(title="FD 客户中台", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
     app.state.engine = engine
+    app.state.queries = queries
 
     @app.exception_handler(ApiProblem)
     async def api_problem(request, error):
@@ -93,6 +104,7 @@ def create_app(directory=None):
         return validate_week(week)
 
     @app.get("/api/meta")
+    @queries.cached
     def get_meta():
         with store.lock, lock:
             result = views.meta(engine)
@@ -104,16 +116,19 @@ def create_app(directory=None):
             return result
 
     @app.get("/api/overview")
+    @queries.cached
     def get_overview(line: Line, week: str):
         with store.lock, lock:
             return views.overview(engine, line, checked_week(week))
 
     @app.get("/api/daily")
+    @queries.cached
     def get_daily(line: Line, from_: Annotated[date, Query(alias="from")], to: date, enterprise: str | None = None):
         with store.lock, lock:
             return views.daily(engine, line, from_, to, enterprise)
 
     @app.get("/api/enterprises")
+    @queries.cached
     def get_enterprises(line: Line, week: str, model: str | None = None):
         with store.lock, lock:
             result = views.roster(engine, line, checked_week(week))
@@ -153,6 +168,7 @@ def create_app(directory=None):
             return Response(output.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"})
 
     @app.get("/api/enterprises/{enterprise_id}")
+    @queries.cached
     def get_enterprise(enterprise_id: str, week: str):
         with store.lock, lock:
             return views.enterprise_detail(engine, enterprise_id, checked_week(week))
@@ -205,6 +221,7 @@ def create_app(directory=None):
         return Response(status_code=204)
 
     @app.get("/api/tasks")
+    @queries.cached
     def get_tasks(line: Line, week: str | None = None, enterprise: str | None = None, user: str | None = None,
                   pattern: Pattern | None = None, intent: str | None = None, mode: str | None = None,
                   model: str | None = None, downloaded: bool | None = None, failed: bool | None = None,
@@ -217,6 +234,7 @@ def create_app(directory=None):
             return engine.task_list(query)
 
     @app.get("/api/chains")
+    @queries.cached
     def get_chains(line: Line, week: str, enterprise: str | None = None,
                    minLength: int = Query(3, ge=1), downloaded: bool | None = None):
         with store.lock, lock:
@@ -229,6 +247,7 @@ def create_app(directory=None):
         return Response(thumbnails.get(url, w), media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
     @app.get("/api/alerts")
+    @queries.cached
     def get_alerts(line: Line, week: str, kind: AlertKind | None = None):
         with store.lock, lock:
             alerts = engine.alerts(line, checked_week(week))
@@ -248,31 +267,37 @@ def create_app(directory=None):
             raise ApiProblem(404, "not_found", "预警不存在")
 
     @app.get("/api/analysis/inspiration")
+    @queries.cached
     def get_inspiration_analysis(week: str, excluded: bool = False):
         with store.lock, lock:
             return analysis.inspiration(engine, checked_week(week), excluded)
 
     @app.get("/api/analysis/video")
+    @queries.cached
     def get_video_analysis(week: str, excluded: bool = False):
         with store.lock, lock:
             return analysis.video(engine, checked_week(week), excluded)
 
     @app.get("/api/clusters")
+    @queries.cached
     def get_clusters(line: Line, week: str | None = None, enterprise: str | None = None, candidate: bool | None = None):
         with store.lock, lock:
             return analysis.clusters(engine, line, checked_week(week) if week else None, enterprise, candidate)
 
     @app.get("/api/conversion")
+    @queries.cached
     def get_conversion(line: Line):
         with store.lock, lock:
             return analysis.conversion(engine, line)
 
     @app.get("/api/cross-line")
+    @queries.cached
     def get_cross_line(week: str):
         with store.lock, lock:
             return analysis.cross_line(engine, checked_week(week))
 
     @app.get("/api/findings")
+    @queries.cached
     def get_findings(line: Line | None = None):
         return [item for item in store.items("findings") if line is None or item["line"] == line]
 
@@ -293,6 +318,7 @@ def create_app(directory=None):
             return item
 
     @app.get("/api/drafts")
+    @queries.cached
     def get_drafts(line: Line):
         with store.lock, lock:
             return workflow.drafts(line)
@@ -376,6 +402,7 @@ def create_app(directory=None):
         return public(store.item("automation_jobs", key))
 
     @app.get("/api/touches")
+    @queries.cached
     def get_touches(line: Line, week: str):
         with store.lock, lock:
             return workflow.board(line, checked_week(week))
@@ -413,6 +440,7 @@ def create_app(directory=None):
         return Response(status_code=204)
 
     @app.get("/api/report")
+    @queries.cached
     def get_report(week: str):
         with store.lock, lock:
             return views.report(engine, checked_week(week))
@@ -429,6 +457,7 @@ def create_app(directory=None):
             return views.report(engine, week)
 
     @app.get("/api/imports")
+    @queries.cached
     def get_imports():
         return store.import_jobs()
 
@@ -453,6 +482,7 @@ def create_app(directory=None):
         return scan(store)
 
     @app.get("/api/settings")
+    @queries.cached
     def get_settings():
         return store.settings()
 

@@ -169,8 +169,9 @@ def enterprise_detail(engine, enterprise_id, week):
     from .workflow import Workflow
     engine.refresh()
     enterprise = engine.store.enterprise(enterprise_id)
-    all_tasks = engine.frame[(engine.frame.enterprise_id == enterprise_id) & (engine.frame.week <= week)]
-    if all_tasks.empty:
+    with engine.store.connection() as conn:
+        times = conn.execute("SELECT MIN(created_at) AS first_seen, MAX(created_at) AS last_active FROM tasks WHERE enterprise_id=? AND week<=?", (enterprise_id, week)).fetchone()
+    if times["first_seen"] is None:
         raise ApiProblem(404, "no_data", "企业在所选周及之前没有任务")
     details = {}
     alerts = []
@@ -207,7 +208,7 @@ def enterprise_detail(engine, enterprise_id, week):
     return {
         "enterprise": ref(enterprise), "adminPhone": enterprise["admin_phone"], "contract": enterprise["contract"],
         "owner": {"sales": enterprise["sales"], "afterSales": enterprise["after_sales"]},
-        "firstSeenAt": all_tasks.created_at.min(), "lastActiveAt": all_tasks.created_at.max(),
+        "firstSeenAt": times["first_seen"], "lastActiveAt": times["last_active"],
         "summary": engine.store.authored("summary", enterprise_id), "lines": details, "alerts": alerts,
         "touches": [item for item in Workflow(engine).touches(enterprise=enterprise_id) if item["week"] <= week], "notes": notes,
     }

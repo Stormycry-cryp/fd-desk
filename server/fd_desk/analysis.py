@@ -1,14 +1,12 @@
-import difflib
 import hashlib
 import json
-import re
 from collections import defaultdict
 
 import pandas as pd
-from rapidfuzz import fuzz, process
 
 from .core import ApiProblem, digest, dump, ratio
 from .engine import main_value, rate, ref
+from .similarity import PromptMatcher
 
 
 def inspiration(engine, week, excluded=False):
@@ -64,22 +62,18 @@ def build_clusters(engine, line):
             result = {key: [lookup[row] for row in rows] for key, rows in cached["members"].items()}
             engine.cluster_cache[line] = result
             return result
-    normalized = group.prompt.map(lambda text: re.sub(r"[\W_]+", "", text))
+    normalized = group.normalized_prompt
     exact = defaultdict(list)
     for index, value in normalized.items():
         if value:
             exact[value].append(index)
     representatives = []
-    texts = []
     threshold = engine.settings["clusters"]["similarity"]
+    matcher = PromptMatcher(threshold, len(exact))
     for text, indices in sorted(exact.items(), key=lambda item: (-len(item[1]), item[0])):
-        match = None
-        for other, _score, candidate in process.extract_iter(text, texts, scorer=fuzz.ratio, score_cutoff=max(0, threshold * 100 - 1e-8)):
-            if difflib.SequenceMatcher(None, text, other).ratio() >= threshold:
-                match = candidate
-                break
+        match = matcher.find(text)
         if match is None:
-            texts.append(text)
+            matcher.add(text)
             representatives.append((text, list(indices)))
         else:
             representatives[match][1].extend(indices)
@@ -89,7 +83,8 @@ def build_clusters(engine, line):
         result[key] = indices
     engine.cluster_cache[line] = result
     temporary = path.with_suffix(".partial")
-    temporary.write_text(dump({"fingerprint": signature.hexdigest(), "members": {key: list(engine.frame.loc[indices].row_key) for key, indices in result.items()}}))
+    row_keys = engine.frame.row_key.to_numpy()
+    temporary.write_text(dump({"fingerprint": signature.hexdigest(), "members": {key: [row_keys[index] for index in indices] for key, indices in result.items()}}))
     temporary.replace(path)
     return result
 
@@ -97,27 +92,33 @@ def build_clusters(engine, line):
 def clusters(engine, line, week=None, enterprise=None, candidate=None):
     members = build_clusters(engine, line)
     drafts = {item.get("clusterId"): item["id"] for item in reversed(engine.store.items("drafts"))}
+    cache_key = (line, week, enterprise)
+    if cache_key in engine.cluster_stats_cache:
+        return [{**item, "draftId": drafts.get(item["id"])} for item in engine.cluster_stats_cache[cache_key] if candidate is None or candidate == item["candidate"]]
     catalog = {item["id"]: item for item in engine.catalog}
+    selected = engine.frame.index
+    if week:
+        selected = engine.group(line, week, enterprise).index
+    elif enterprise:
+        selected = engine.frame.index[engine.frame.enterprise_id == enterprise]
+    selected = set(selected)
     result = []
     for key, indices in members.items():
-        part = engine.frame.loc[indices]
-        if week:
-            part = part[part.week == week]
-        if enterprise:
-            part = part[part.enterprise_id == enterprise]
-        if part.empty:
+        indices = [index for index in indices if index in selected]
+        if not indices:
             continue
+        part = engine.frame.loc[indices]
         matched = part.template_id.dropna()
         template = catalog[int(matched.iloc[0])] if len(matched) else None
         is_candidate = len(part) >= engine.settings["clusters"]["candidateMinUses"] and template is None
-        if candidate is not None and candidate != is_candidate:
-            continue
         counts = part.enterprise_id.value_counts()
         result.append({"id": key, "line": line, "sample": part.iloc[0].prompt, "uses": len(part), "enterprises": len(counts),
             "downloadRate": rate(part), "intent": main_value(part.intent), "matchedTemplate": {"id": template["id"], "name": template.get("templateName", template.get("name", template.get("title", "")))} if template else None,
             "candidate": is_candidate, "topEnterprises": [{"enterprise": ref(engine.enterprises[eid]), "uses": int(uses)} for eid, uses in counts.head(10).items()],
             "draftId": drafts.get(key)})
-    return sorted(result, key=lambda item: (-item["uses"] * item["downloadRate"], -item["uses"], item["id"]))
+    result.sort(key=lambda item: (-item["uses"] * item["downloadRate"], -item["uses"], item["id"]))
+    engine.cluster_stats_cache[cache_key] = result
+    return [item for item in result if candidate is None or candidate == item["candidate"]]
 
 
 def cluster_indices(engine, line, key):
@@ -129,17 +130,26 @@ def cluster_indices(engine, line, key):
 
 def conversion(engine, line, week=None):
     engine.refresh()
-    history = engine.frame if week is None else engine.frame[engine.frame.week <= week]
-    used = set(history.loc[history.line == line, "enterprise_id"])
-    other = history[(history.line != line) & (~history.enterprise_id.isin(used))]
+    bound = " AND t.week<=?" if week is not None else ""
+    used_bound = " AND u.week<=?" if week is not None else ""
+    parameters = [line, *([week] if week is not None else []), line, *([week] if week is not None else [])]
+    with engine.store.connection() as conn:
+        rows = conn.execute("WITH candidates AS MATERIALIZED (SELECT e.id FROM enterprises e "
+            "WHERE e.kind<>'internal' AND e.contract NOT IN ('expired','internal') AND NOT EXISTS "
+            "(SELECT 1 FROM tasks u WHERE u.enterprise_id=e.id AND u.line=?" + used_bound + ")) "
+            "SELECT t.enterprise_id, t.scene, COUNT(*) AS tasks, MAX(t.created_at) AS last_active, MIN(t.created_at) AS first_seen "
+            "FROM candidates c JOIN tasks t ON t.enterprise_id=c.id WHERE t.line<>?" + bound + " "
+            "GROUP BY t.enterprise_id,t.scene ORDER BY t.enterprise_id,tasks DESC,first_seen,t.scene", parameters).fetchall()
+    candidates = {}
+    for row in rows:
+        candidate = candidates.setdefault(row["enterprise_id"], {"scenes": [], "lastActiveAt": row["last_active"]})
+        candidate["scenes"].append({"scene": row["scene"], "tasks": row["tasks"]})
+        candidate["lastActiveAt"] = max(candidate["lastActiveAt"], row["last_active"])
     result = []
-    for eid, part in other.groupby("enterprise_id"):
+    for eid, candidate in candidates.items():
         item = engine.enterprises[eid]
-        if item["kind"] == "internal" or item["contract"] in ("expired", "internal"):
-            continue
         result.append({"enterprise": ref(item), "contract": item["contract"], "owner": {"sales": item["sales"], "afterSales": item["after_sales"]},
-            "scenes": [{"scene": str(scene), "tasks": int(count)} for scene, count in part.scene.value_counts().items()],
-            "lastActiveAt": part.created_at.max(), "suggestedDraftId": None})
+            "scenes": candidate["scenes"], "lastActiveAt": candidate["lastActiveAt"], "suggestedDraftId": None})
     return sorted(result, key=lambda item: item["lastActiveAt"], reverse=True)
 
 

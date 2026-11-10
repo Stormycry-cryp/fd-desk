@@ -47,9 +47,11 @@ class Workflow:
 
     def drafts(self, line=None):
         items = self.store.items("drafts")
+        settings = self.store.settings()
+        pushes = self.store.items("pushes")
         for item in items:
-            item["link"] = link_for(self.store.settings(), item["fdTemplateId"], item["fdTemplateSource"]) if item["fdTemplateId"] else None
-            item["pushes"] = [{key: value for key, value in push.items() if not key.startswith("_")} for push in self.store.items("pushes") if push["draftId"] == item["id"]]
+            item["link"] = link_for(settings, item["fdTemplateId"], item["fdTemplateSource"]) if item["fdTemplateId"] else None
+            item["pushes"] = [{key: value for key, value in push.items() if not key.startswith("_")} for push in pushes if push["draftId"] == item["id"]]
         return [item for item in items if line is None or item["line"] == line]
 
     def create_draft(self, body, *, conn=None):
@@ -200,7 +202,7 @@ class Workflow:
         return item
 
     def touches(self, line=None, week=None, enterprise=None):
-        return [self.with_outcome(item) for item in self.store.items("touches") if (line is None or item["line"] == line) and (week is None or item["week"] == week) and (enterprise is None or item["enterprise"]["id"] == enterprise)]
+        return [self.with_outcome(item) for item in self.store.items("touches", line=line, week=week, enterprise=enterprise)]
 
     def board(self, line, week):
         self.suggestions(line, week)

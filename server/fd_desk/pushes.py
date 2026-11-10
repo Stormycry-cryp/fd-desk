@@ -77,7 +77,8 @@ class Pushes:
                 raise ApiProblem(403, "external_share_denied", "当前 FD 账号没有外部分享权限")
             self.engine.refresh()
             for enterprise in enterprises:
-                phones = set(self.engine.frame.loc[self.engine.frame.enterprise_id == enterprise["id"], "user_phone"].dropna()) | {enterprise["admin_phone"]}
+                with self.store.connection() as conn:
+                    phones = {row[0] for row in conn.execute("SELECT DISTINCT user_phone FROM tasks WHERE enterprise_id=? AND user_phone IS NOT NULL", (enterprise["id"],))} | {enterprise["admin_phone"]}
                 found = {}
                 for phone in sorted(phones):
                     result = self.client.request("POST", "/clothing-ai/chatting-template-manage/share/candidates/page", {

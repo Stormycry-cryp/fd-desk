@@ -268,6 +268,8 @@ def import_file(store, path, *, replace_range=False, scope=None):
             if isinstance(error, ApiProblem):
                 raise
             raise ApiProblem(422, "invalid_import", job["error"]) from None
+        with store.connection() as conn:
+            conn.execute("PRAGMA optimize=0x10002")
         store.changed()
     return job
 

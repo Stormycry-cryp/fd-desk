@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_line_week ON tasks(line, week);
 CREATE INDEX IF NOT EXISTS tasks_enterprise_week ON tasks(enterprise_id, week);
+CREATE INDEX IF NOT EXISTS tasks_line_time ON tasks(line, created_at, file_order, row_no DESC);
+CREATE INDEX IF NOT EXISTS tasks_enterprise_history ON tasks(enterprise_id, week, created_at);
 CREATE TABLE IF NOT EXISTS imports (
     id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, job TEXT NOT NULL
 );
@@ -36,6 +38,7 @@ CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY, enterprise_id TEXT NOT NULL REFERENCES enterprises(id),
     text TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS notes_enterprise_time ON notes(enterprise_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS alert_state (
     id TEXT PRIMARY KEY, dismissed INTEGER NOT NULL, line TEXT NOT NULL, week TEXT NOT NULL
 );
@@ -44,10 +47,13 @@ CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS touches (id TEXT PRIMARY KEY, line TEXT NOT NULL, week TEXT NOT NULL, enterprise_id TEXT NOT NULL REFERENCES enterprises(id), value TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS touches_line_week ON touches(line,week);
+CREATE INDEX IF NOT EXISTS touches_enterprise_week ON touches(enterprise_id, week);
 CREATE TABLE IF NOT EXISTS pushes (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reruns (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_jobs (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
+
+ITEM_TABLES = {"drafts", "touches", "pushes", "reruns", "automation_jobs", "findings"}
 
 
 class Store:
@@ -58,6 +64,12 @@ class Store:
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_xinfo(tasks)")}
+            for column, field in (("scene", "scene"), ("user_phone", "user_phone")):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT GENERATED ALWAYS AS (json_extract(payload, '$.{field}')) VIRTUAL")
+            conn.execute("CREATE INDEX IF NOT EXISTS tasks_conversion ON tasks(enterprise_id, line, week, scene, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS tasks_members ON tasks(enterprise_id, user_phone)")
             if not conn.execute("SELECT 1 FROM settings").fetchone():
                 conn.execute("INSERT INTO settings VALUES (1, ?)", (dump(read_spec("settings.default.json")),))
                 for i, item in enumerate(read_spec("seeds.json")["findings"]):
@@ -68,9 +80,17 @@ class Store:
                 settings.update(rerunDailyBudget=0, rerunCurrency="CNY")
                 conn.execute("UPDATE settings SET value=? WHERE id=1", (dump(settings),))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('analytics_revision','0')")
-            for table in ("tasks", "enterprises", "settings", "findings", "authored"):
+            conn.execute("INSERT OR IGNORE INTO metadata VALUES ('facts_revision','0')")
+            for table in ("tasks", "enterprises", "settings", "findings", "authored", "coverage", "notes", "alert_state", "imports", "drafts", "touches", "pushes", "reruns", "automation_jobs"):
                 for action in ("INSERT", "UPDATE", "DELETE"):
                     conn.execute(f"CREATE TRIGGER IF NOT EXISTS analytics_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")
+            for table in ("tasks", "coverage"):
+                for action in ("INSERT", "UPDATE", "DELETE"):
+                    conn.execute(f"CREATE TRIGGER IF NOT EXISTS facts_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='facts_revision'; END")
+            for action in ("INSERT", "UPDATE", "DELETE"):
+                record = "old" if action == "DELETE" else "new"
+                conn.execute(f"CREATE TRIGGER IF NOT EXISTS account_{action} AFTER {action} ON metadata WHEN {record}.key='fd_account' BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")
+            conn.execute("PRAGMA optimize=0x10002")
         self.observer = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=False)
 
     @contextmanager
@@ -78,6 +98,7 @@ class Store:
         conn = sqlite3.connect(self.path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA mmap_size=268435456")
         try:
             with conn:
                 yield conn
@@ -95,6 +116,13 @@ class Store:
     @property
     def generation(self):
         return self.observer.execute("SELECT CAST(value AS INTEGER) FROM metadata WHERE key='analytics_revision'").fetchone()[0]
+
+    def revisions(self):
+        return dict(self.observer.execute("SELECT key, CAST(value AS INTEGER) FROM metadata WHERE key IN ('analytics_revision','facts_revision')"))
+
+    def close(self):
+        with self.lock:
+            self.observer.close()
 
     def enterprise(self, enterprise_id):
         with self.connection() as conn:
@@ -123,14 +151,23 @@ class Store:
         with self.connection() as conn:
             return [json.loads(row[0]) for row in conn.execute("SELECT job FROM imports ORDER BY rowid DESC")]
 
-    def items(self, table):
-        if table not in {"drafts", "touches", "pushes", "reruns", "automation_jobs", "findings"}:
+    def items(self, table, *, line=None, week=None, enterprise=None):
+        if table not in ITEM_TABLES:
             raise ValueError("业务表名称无效")
+        filters = {"line": line, "week": week, "enterprise_id": enterprise}
+        selected = {key: value for key, value in filters.items() if value is not None}
+        if selected and table != "touches":
+            raise ValueError("该业务表不支持触达筛选")
+        where = " WHERE " + " AND ".join(f"{key}=?" for key in selected) if selected else ""
         with self.connection() as conn:
-            return [json.loads(row[0]) for row in conn.execute(f"SELECT value FROM {table} ORDER BY rowid DESC")]
+            return [json.loads(row[0]) for row in conn.execute(f"SELECT value FROM {table}{where} ORDER BY rowid DESC", tuple(selected.values()))]
 
     def item(self, table, key):
-        return next((item for item in self.items(table) if item["id"] == key), None) or self.missing()
+        if table not in ITEM_TABLES:
+            raise ValueError("业务表名称无效")
+        with self.connection() as conn:
+            row = conn.execute(f"SELECT value FROM {table} WHERE id=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else self.missing()
 
     def missing(self):
         raise ApiProblem(404, "not_found", "记录不存在")

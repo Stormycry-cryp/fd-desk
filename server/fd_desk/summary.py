@@ -11,7 +11,9 @@ def rounded(value):
 def summarize(engine):
     engine.refresh()
     data = engine.frame
-    result = {"rows": len(data), "enterprises": int(data.admin_phone.nunique()), "weeks": {}, "comparisons": {}}
+    with engine.store.connection() as conn:
+        totals = conn.execute("SELECT COUNT(*), COUNT(DISTINCT enterprise_id) FROM tasks").fetchone()
+    result = {"rows": totals[0], "enterprises": totals[1], "weeks": {}, "comparisons": {}}
     weeks = sorted(data[data.line.isin(LINES)].week.unique())
     for week in weeks:
         result["weeks"][week] = {}
