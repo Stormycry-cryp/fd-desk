@@ -85,7 +85,7 @@ const Imports = () => {
           <input ref={input} type="file" accept=".xlsx" multiple hidden onChange={(e) => e.target.files && upload(e.target.files)} />
           <span className="glyph">{busy ? <span className="btn" style={{ padding: 0, height: "auto" }}><span className="spinner" /></span> : <Icon name="upload" />}</span>
           <b style={{ color: "var(--ink)", fontWeight: 500 }}>拖入生成记录导出文件</b>
-          <span style={{ fontSize: 12.5 }}>FD生成记录导出_起始日期-结束日期.xlsx，重复导入会更新而不是新增</span>
+          <span style={{ fontSize: 13.5 }}>FD生成记录导出_起始日期-结束日期.xlsx，重复导入会更新而不是新增</span>
         </div>
         <Card flush title="导入记录" actions={<Button size="sm" icon="refresh" loading={busy} onClick={scan}>扫描收件箱</Button>}>
           {q.isLoading ? (
@@ -152,7 +152,7 @@ const Imports = () => {
                   {[0, 1, 2, 3, 4, 5, 6].map((d) => (
                     <span key={d} className={cx("cell", !on.has(d) && "off")} />
                   ))}
-                  <span className="faint num" style={{ fontSize: 11.5, textAlign: "right" }}>
+                  <span className="faint num" style={{ fontSize: 12.5, textAlign: "right" }}>
                     {c?.complete ? `W${isoWeek(w)}` : `${on.size} 天`}
                   </span>
                 </div>
@@ -162,7 +162,7 @@ const Imports = () => {
         ) : (
           <Skel h={200} />
         )}
-        {meta?.lastImportAt && <div className="faint" style={{ fontSize: 12, marginTop: 14 }}>最近导入 {time(meta.lastImportAt)}</div>}
+        {meta?.lastImportAt && <div className="faint" style={{ fontSize: 13, marginTop: 14 }}>最近导入 {time(meta.lastImportAt)}</div>}
       </Card>
     </div>
   )

@@ -20,6 +20,7 @@ export const useEnterprise = (id: string | null, week?: string | null) => useQue
 export const useTasks = (opts: CallOpts<"GET /api/tasks">["query"], enabled = true) => useQuery(q("GET /api/tasks", { query: opts }, enabled && !!opts?.week))
 export const useChains = (opts: CallOpts<"GET /api/chains">["query"], enabled = true) => useQuery(q("GET /api/chains", { query: opts }, enabled && !!opts?.week))
 export const useAlerts = (line: Line, week?: string | null, kind?: AlertKind) => useQuery(q("GET /api/alerts", { query: { line, week: week ?? "", kind } }, !!week))
+export const useDaily = (line: Line, from: string | null, to: string | null, enterprise?: string) => useQuery({ ...q("GET /api/daily", { query: { line, from: from ?? "", to: to ?? "", enterprise } }, !!from && !!to), staleTime: 60000 })
 export const useInspirationAnalysis = (week?: string | null, excluded = false) => useQuery(q("GET /api/analysis/inspiration", { query: { week: week ?? "", excluded } }, !!week))
 export const useVideoAnalysis = (week?: string | null, excluded = false) => useQuery(q("GET /api/analysis/video", { query: { week: week ?? "", excluded } }, !!week))
 export const useClusters = (line: Line, week?: string | null, enterprise?: string) => useQuery(q("GET /api/clusters", { query: { line, week: week ?? undefined, enterprise } }))

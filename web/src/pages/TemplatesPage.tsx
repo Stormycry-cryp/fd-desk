@@ -100,7 +100,7 @@ const ClusterRow = ({ c, rank, onCreate }: { c: Cluster; rank: number; onCreate:
     <div className="stack" style={{ alignItems: "flex-end", gap: 8 }}>
       <div className="uses">
         <b>{num(c.uses)}</b>
-        <span className="faint" style={{ fontSize: 11.5 }}>次</span>
+        <span className="faint" style={{ fontSize: 12.5 }}>次</span>
       </div>
       {c.draftId ? (
         <Badge tone="accent" icon="check">已做草稿</Badge>
@@ -123,7 +123,7 @@ const DraftItem = ({ d }: { d: TemplateDraft }) => {
       <div className="row" style={{ alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="title">{d.title.text}</div>
-          <div className="row" style={{ gap: 8, marginTop: 4, fontSize: 12, color: "var(--ink-4)" }}>
+          <div className="row" style={{ gap: 8, marginTop: 4, fontSize: 13, color: "var(--ink-4)" }}>
             {d.scene && <span>{d.scene}</span>}
             <span>·</span>
             <span>{time(d.createdAt)}</span>
@@ -146,7 +146,7 @@ const DraftItem = ({ d }: { d: TemplateDraft }) => {
           trigger={({ toggle, ref }) => <IconButton ref={ref as any} size="sm" icon="more" label="更多" onClick={toggle} />}
         />
       </div>
-      <div style={{ fontSize: 12.5, lineHeight: 1.65, color: "var(--ink-2)", background: "var(--surface-2)", padding: "10px 12px", borderRadius: 8, boxShadow: "inset 0 0 0 1px var(--line-2)" }}>{d.prompt.text}</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--ink-2)", background: "var(--surface-2)", padding: "10px 12px", borderRadius: 8, boxShadow: "inset 0 0 0 1px var(--line-2)" }}>{d.prompt.text}</div>
       {d.slots.length > 0 && (
         <div className="slots">
           {d.slots.map((s, i) => (
@@ -161,7 +161,7 @@ const DraftItem = ({ d }: { d: TemplateDraft }) => {
       {d.link ? <CopyField value={d.link} open /> : null}
       <div className="row" style={{ gap: 8 }}>
         {d.pushedTo.length > 0 && (
-          <span className="faint ellipsis" style={{ fontSize: 12, flex: 1 }}>
+          <span className="faint ellipsis" style={{ fontSize: 13, flex: 1 }}>
             已推送 {d.pushedTo.map((e) => e.name).join("、")}
           </span>
         )}

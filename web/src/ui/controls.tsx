@@ -180,7 +180,7 @@ export const Segmented = <T extends string>({ value, onChange, options, size, bl
   const { wrap, box, ready } = useIndicator([value, options.length])
   return (
     <div ref={wrap} className={cx("seg", size, block && "block")} role="group">
-      {box && <span className="thumb" style={{ width: box.w, transform: `translateX(${box.x}px)`, transition: ready ? undefined : "none" }} />}
+      {box && <span className="seg-ind" style={{ width: box.w, transform: `translateX(${box.x}px)`, transition: ready ? undefined : "none" }} />}
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={value === o.value} data-on={value === o.value ? "1" : "0"} onClick={() => onChange(o.value)}>
           {o.icon && <Icon name={o.icon} size="sm" />}

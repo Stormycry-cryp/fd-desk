@@ -109,7 +109,7 @@ export const TrendChart = ({ points, height = 140, kind = "line", format = (v: n
               <line x1="0" y1="0" x2="0" y2="5" stroke="#a6a1f1" strokeWidth="2" />
             </pattern>
           </defs>
-          <g className="grid">
+          <g className="grid-lines">
             {ticks.map((t) => (
               <g key={t}>
                 <line x1={pad.l} x2={w - pad.r} y1={y(t)} y2={y(t)} />
@@ -223,6 +223,215 @@ export const StackBar = ({ segments, height = 28 }: { segments: { key: string; v
           </div>
         ) : null,
       )}
+    </div>
+  )
+}
+
+export interface HeatDay {
+  date: string
+  value: number | null
+  covered: boolean
+  note?: ReactNode
+}
+
+const HEAT = ["#ebe9fc", "#d0ccf7", "#aba5f1", "#8279eb", "#5f57e6", "#3e36b6"]
+const quant = (xs: number[], q: number) => {
+  if (!xs.length) return 0
+  const s = [...xs].sort((a, b) => a - b)
+  return s[Math.min(s.length - 1, Math.floor(q * s.length))]
+}
+const dayMs = 86400000
+const parse = (d: string) => new Date(`${d}T12:00:00+08:00`).getTime()
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10)
+
+export const Heatmap = ({ days, format = (v: number) => String(Math.round(v)), onPick, maxCell = 22, legend = true }: { days: HeatDay[]; format?: (v: number) => string; onPick?: (d: HeatDay) => void; maxCell?: number; legend?: boolean }) => {
+  const { ref, w } = useWidth()
+  const [hover, setHover] = useState<{ d: HeatDay; x: number; y: number } | null>(null)
+  const grid = useMemo(() => {
+    if (!days.length) return { cols: [] as (HeatDay | null)[][], months: [] as { col: number; label: string }[] }
+    const map = new Map(days.map((d) => [d.date, d]))
+    const first = parse(days[0].date)
+    const dow = (new Date(first).getUTCDay() + 6) % 7
+    const start = first - dow * dayMs
+    const last = parse(days[days.length - 1].date)
+    const cols: (HeatDay | null)[][] = []
+    const months: { col: number; label: string }[] = []
+    let prevMonth = -1
+    for (let t = start, c = 0; t <= last; t += 7 * dayMs, c++) {
+      const col: (HeatDay | null)[] = []
+      for (let k = 0; k < 7; k++) col.push(map.get(iso(t + k * dayMs)) ?? null)
+      const m = new Date(t + 3 * dayMs).getUTCMonth()
+      if (m !== prevMonth) {
+        months.push({ col: c, label: `${m + 1}月` })
+        prevMonth = m
+      }
+      cols.push(col)
+    }
+    return { cols, months }
+  }, [days])
+  const vals = days.filter((d) => d.covered && d.value != null && d.value > 0).map((d) => d.value!)
+  const th = [0.2, 0.4, 0.6, 0.8, 0.95].map((q) => quant(vals, q))
+  const level = (v: number) => {
+    let i = 0
+    while (i < th.length && v > th[i]) i++
+    return Math.min(HEAT.length - 1, i)
+  }
+  const labelW = 22
+  const gap = 4
+  const n = grid.cols.length
+  const gapPx = n < 20 ? 6 : gap
+  const cell = n ? Math.max(10, Math.min(maxCell, Math.floor((w - labelW - gapPx * (n - 1)) / n))) : maxCell
+  const width = labelW + n * cell + Math.max(0, n - 1) * gapPx
+  return (
+    <div ref={ref} className="heatmap">
+      {w > 0 && (
+        <div style={{ position: "relative", width, maxWidth: "100%" }}>
+          <div className="hm-body" style={{ gridTemplateColumns: `${labelW}px repeat(${n}, ${cell}px)`, gridTemplateRows: `repeat(7, ${cell}px)`, gap: gapPx }}>
+            {["一", "二", "三", "四", "五", "六", "日"].map((l, k) => (
+              <span key={k} className="hm-row" style={{ gridColumn: 1, gridRow: k + 1 }}>
+                {l}
+              </span>
+            ))}
+            {grid.cols.map((col, c) =>
+              col.map((d, k) => {
+                const style = { gridColumn: c + 2, gridRow: k + 1 }
+                if (!d) return <span key={`${c}-${k}`} className="hm-cell void" style={style} />
+                const v = d.value ?? 0
+                const cls = !d.covered ? "off" : v > 0 ? "" : "zero"
+                return (
+                  <span
+                    key={d.date}
+                    className={cx("hm-cell", cls, onPick && "click", hover?.d.date === d.date && "hot")}
+                    style={{ ...style, background: d.covered && v > 0 ? HEAT[level(v)] : undefined }}
+                    onMouseEnter={() => setHover({ d, x: labelW + c * (cell + gapPx) + cell / 2, y: k * (cell + gapPx) })}
+                    onMouseLeave={() => setHover(null)}
+                    onClick={onPick ? () => onPick(d) : undefined}
+                  />
+                )
+              }),
+            )}
+          </div>
+          <div className="hm-months" style={{ marginLeft: labelW, height: 20 }}>
+            {grid.months.map((m, i) => {
+              const next = grid.months[i + 1]?.col ?? n
+              if (next - m.col < 2 && i < grid.months.length - 1) return null
+              return (
+                <span key={m.col} style={{ left: m.col * (cell + gapPx) }}>
+                  {m.label}
+                </span>
+              )
+            })}
+          </div>
+          {legend && (
+            <div className="hm-legend" style={{ marginLeft: labelW }}>
+              <span className="row" style={{ gap: 6 }}>
+                <i className="hm-cell off" />
+                没有数据
+              </span>
+              <span className="spacer" />
+              <span>少</span>
+              <i className="hm-cell zero" />
+              {HEAT.map((c) => (
+                <i key={c} className="hm-cell" style={{ background: c }} />
+              ))}
+              <span>多</span>
+            </div>
+          )}
+          {hover && (
+            <div className="chart-tip" style={{ left: hover.x, top: hover.y }}>
+              <div className="k">
+                {hover.d.date.slice(5).replace("-", "/")} 周{["日", "一", "二", "三", "四", "五", "六"][new Date(parse(hover.d.date)).getUTCDay()]}
+              </div>
+              <div className="v">{!hover.d.covered ? "没有数据" : hover.d.value ? format(hover.d.value) : "0"}</div>
+              {hover.d.covered && hover.d.note && <div className="k">{hover.d.note}</div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const MiniArea = ({ values, partial = [], height = 44, format = (v: number) => String(Math.round(v)), labels = [] }: { values: (number | null)[]; partial?: boolean[]; height?: number; format?: (v: number) => string; labels?: string[] }) => {
+  const { ref, w } = useWidth()
+  const [hover, setHover] = useState<number | null>(null)
+  const n = values.length
+  const vs = values.map((v) => v ?? 0)
+  const max = Math.max(...vs, 1)
+  const min = Math.min(...vs.filter((_, i) => values[i] != null), max)
+  const lo = Math.max(0, min - (max - min) * 0.4)
+  const x = (i: number) => (n > 1 ? 3 + (i / (n - 1)) * (w - 6) : w / 2)
+  const y = (v: number) => 4 + (height - 8) * (1 - (v - lo) / Math.max(1e-9, max - lo))
+  const idx = values.map((v, i) => (v == null ? -1 : i)).filter((i) => i >= 0)
+  const solid = idx.filter((i) => !partial[i])
+  const path = (ids: number[]) => ids.map((i, k) => `${k ? "L" : "M"}${x(i).toFixed(1)},${y(vs[i]).toFixed(1)}`).join("")
+  const lastSolid = solid[solid.length - 1]
+  const tail = idx.filter((i) => i >= (lastSolid ?? 0))
+  const area = solid.length > 1 ? `${path(solid)}L${x(lastSolid).toFixed(1)},${height}L${x(solid[0]).toFixed(1)},${height}Z` : ""
+  return (
+    <div ref={ref} className="mini-area" style={{ height }} onMouseLeave={() => setHover(null)}>
+      {w > 0 && idx.length > 1 && (
+        <svg width={w} height={height}>
+          <defs>
+            <linearGradient id="mini-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="var(--accent)" stopOpacity="0.16" />
+              <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {area && <path d={area} fill="url(#mini-fill)" />}
+          <path d={path(solid)} className="ml" />
+          {tail.length > 1 && <path d={path(tail)} className="ml dash" />}
+          {hover != null && values[hover] != null && <line x1={x(hover)} x2={x(hover)} y1={0} y2={height} className="mg" />}
+          {(hover != null && values[hover] != null ? [hover] : [idx[idx.length - 1]]).map((i) => (
+            <circle key={i} cx={x(i)} cy={y(vs[i])} r={3} className={cx("md", partial[i] && "hollow")} />
+          ))}
+          {values.map((_, i) => (
+            <rect key={i} x={x(i) - w / n / 2} y={0} width={w / n} height={height} fill="transparent" onMouseEnter={() => setHover(i)} />
+          ))}
+        </svg>
+      )}
+      {hover != null && values[hover] != null && (
+        <div className="chart-tip" style={{ left: x(hover), top: y(vs[hover]) }}>
+          <div className="k">{labels[hover] ?? ""}{partial[hover] ? " · 不完整" : ""}</div>
+          <div className="v">{format(values[hover]!)}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const PairBars = ({ rows, format = (v: number) => String(Math.round(v)) }: { rows: { key: string; label: ReactNode; previous: number | null; current: number | null; tail?: ReactNode }[]; format?: (v: number) => string }) => {
+  const max = Math.max(1, ...rows.flatMap((r) => [r.previous ?? 0, r.current ?? 0]))
+  return (
+    <div className="pairbars">
+      {rows.map((r) => (
+        <div key={r.key} className="pb-row">
+          <div className="pb-head">
+            <span className="pb-label">{r.label}</span>
+            {r.tail}
+          </div>
+          {r.previous == null || r.current == null ? (
+            <div className="faint" style={{ fontSize: 13 }}>没有可比数据</div>
+          ) : (
+            <>
+              <div className="pb-bar">
+                <span className="pb-k">上周</span>
+                <span className="pb-track">
+                  <span className="pb-fill prev" style={{ width: `${(r.previous / max) * 100}%` }} />
+                </span>
+                <span className="pb-v">{format(r.previous)}</span>
+              </div>
+              <div className="pb-bar">
+                <span className="pb-k">本周</span>
+                <span className="pb-track">
+                  <span className="pb-fill" style={{ width: `${(r.current / max) * 100}%` }} />
+                </span>
+                <span className="pb-v strong">{format(r.current)}</span>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

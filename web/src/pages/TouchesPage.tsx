@@ -151,7 +151,7 @@ export const TouchesPage = () => {
                 >
                   <div className="col-head">
                     <b>{slotName[s]}</b>
-                    <span className="faint" style={{ fontSize: 12 }}>{slotHint[s]}</span>
+                    <span className="faint" style={{ fontSize: 13 }}>{slotHint[s]}</span>
                     <span className="spacer" />
                     <span className="n">{list.length}</span>
                   </div>
@@ -325,7 +325,7 @@ const TouchEditor = ({ t, onClose }: { t: Touch | null; onClose: () => void }) =
                   <span className="f">{t.outcome.control ? `中位数 · ${t.outcome.control.enterprises} 家` : ""}</span>
                 </div>
               </div>
-              {t.outcome.templateUsed != null && <div style={{ marginTop: 8, fontSize: 12.5 }} className={t.outcome.templateUsed ? "up" : "muted"}>{t.outcome.templateUsed ? "模板被使用了" : "模板没有被使用"}</div>}
+              {t.outcome.templateUsed != null && <div style={{ marginTop: 8, fontSize: 13.5 }} className={t.outcome.templateUsed ? "up" : "muted"}>{t.outcome.templateUsed ? "模板被使用了" : "模板没有被使用"}</div>}
             </div>
           ) : (
             t.status !== "draft" && <div className="banner neutral"><Icon name="clock" size="sm" />下一周数据导入后自动算出结果</div>

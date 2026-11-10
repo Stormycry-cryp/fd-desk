@@ -1,13 +1,13 @@
 import { useState } from "react"
 import type { AlertKind, Line, Mover, Overview } from "@spec/contract"
-import { useOverview } from "../api/hooks"
+import { useDaily, useOverview } from "../api/hooks"
 import { useCtx, isoWeek } from "../lib/ctx"
 import { alertName, failureName, lineName, patternName } from "../lib/labels"
 import { navigate } from "../lib/route"
 import { compact, num, pct, ratio, time, weekLabel, weekdaysLabel } from "../lib/format"
-import { Button, Tabs } from "../ui/controls"
+import { Button, Segmented, Tabs } from "../ui/controls"
 import { Badge, Card, CoverageDots, Delta, ErrorState, Rate, Sev, Stat } from "../ui/display"
-import { BarList, LevelBar, StackBar, TrendChart } from "../ui/charts"
+import { BarList, Heatmap, LevelBar, MiniArea, PairBars, StackBar, TrendChart } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { Hint, Tooltip } from "../ui/overlays"
 import { CmpFoot, PageSkeleton, fmt, trimHistory, weekPoint } from "./common"
@@ -43,6 +43,7 @@ export const WeekPage = () => {
       <div className="grid">
         <Hero o={o} excluded={excluded} />
         <Tiles o={o} excluded={excluded} />
+        <Activity o={o} />
         <Concentration o={o} />
         <Movers o={o} />
         <Alerts o={o} line={line} />
@@ -100,17 +101,24 @@ const Tiles = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
   const wd = o.comparableWeekdays
   const insp = o.line === "inspiration"
   const v = o.video
+  const hist = trimHistory(o.history, 6)
+  const labels = hist.map((h) => weekPoint(h.week))
+  const partial = hist.map((h) => !h.complete)
+  const trend = (vals: (number | null)[], f: (n: number) => string) => <MiniArea values={vals} partial={partial} labels={labels} format={f} />
   return (
     <Card className="span-5" flush>
       <div className="tiles">
         <div className="tile">
           <Stat label={insp ? "任务" : "耗点"} hint={insp ? "导出的行数，与后台一致" : "点数合计，失败任务不扣点"} value={insp ? num(o.tasks.value) : compact(o.points.value)} foot={<CmpFoot m={insp ? o.tasks : o.points} excluded={excluded} weekdays={wd} />} />
+          {trend(hist.map((h) => (insp ? h.tasks : h.points)), (n) => (insp ? num(n) : compact(n)))}
         </div>
         <div className="tile">
           <Stat label="下载率" hint="下载过的任务 / 全部任务。是满意度的近似" value={pct(o.downloadRate.value, 1)} foot={<CmpFoot m={o.downloadRate} excluded={excluded} weekdays={wd} kind="pct" />} />
+          {trend(hist.map((h) => (h.tasks ? h.downloadRate : null)), (n) => pct(n, 1))}
         </div>
         <div className="tile">
           <Stat label="活跃企业" value={num(o.activeEnterprises.value)} foot={<CmpFoot m={o.activeEnterprises} excluded={excluded} weekdays={wd} />} />
+          {trend(hist.map((h) => h.activeEnterprises), num)}
         </div>
         <div className="tile">
           {insp ? (
@@ -129,8 +137,83 @@ const Tiles = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
               }
             />
           )}
+          {trend(hist.map((h) => (insp ? h.points : h.tasks)), insp ? compact : num)}
         </div>
       </div>
+    </Card>
+  )
+}
+
+type ActMode = "day" | "week" | "cum"
+type ActMetric = "tasks" | "points" | "enterprises"
+
+const Activity = ({ o }: { o: Overview }) => {
+  const { meta, line } = useCtx()
+  const insp = line === "inspiration"
+  const [mode, setMode] = useState<ActMode>("day")
+  const [metric, setMetric] = useState<ActMetric>(insp ? "tasks" : "points")
+  const cov = meta?.coverage.filter((c) => c.line === line) ?? []
+  const allDays = cov.flatMap((c) => c.days).sort()
+  const from = meta?.weeks[0] ?? null
+  const to = allDays[allDays.length - 1] ?? null
+  const q = useDaily(line, from, to)
+  const days = q.data ?? []
+  const val = (d: { tasks: number; points: number; enterprises: number }) => d[metric]
+  const f = metric === "points" ? compact : num
+  const unit = metric === "tasks" ? "个任务" : metric === "points" ? "点" : "家企业"
+  const covered = days.filter((d) => d.covered)
+  const total = covered.reduce((s, d) => s + val(d), 0)
+  const best = covered.reduce<(typeof days)[number] | null>((b, d) => (!b || val(d) > val(b) ? d : b), null)
+  const weekly = o.history.filter((_, i) => i >= o.history.findIndex((x) => x.tasks > 0))
+  const wv = (h: (typeof weekly)[number]) => (metric === "tasks" ? h.tasks : metric === "points" ? h.points : h.activeEnterprises)
+  let acc = 0
+  const cumDays = covered.map((d) => ((acc += val(d)), { label: d.date.slice(5).replace("-", "/"), value: acc }))
+  return (
+    <Card
+      className="span-12"
+      title="使用活跃度"
+      sub={best ? `共 ${f(total)} ${unit} · 最高 ${best.date.slice(5).replace("-", "/")} ${f(val(best))}` : undefined}
+      actions={
+        <div className="row" style={{ gap: 10 }}>
+          <Segmented size="sm" value={metric} onChange={setMetric} options={[{ value: "tasks", label: "任务" }, { value: "points", label: "耗点" }, { value: "enterprises", label: "企业" }]} />
+          <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: "day", label: "每天" }, { value: "week", label: "每周" }, { value: "cum", label: "累计" }]} />
+        </div>
+      }
+    >
+      {q.isLoading ? (
+        <div className="skel" style={{ height: 196, borderRadius: 10 }} />
+      ) : q.error ? (
+        <ErrorState error={q.error} />
+      ) : mode === "day" ? (
+        <div className="activity">
+          <div className="act-map">
+            <Heatmap
+              days={days.map((d) => ({ date: d.date, covered: d.covered, value: val(d), note: d.covered ? `${num(d.tasks)} 任务 · ${compact(d.points)} 点 · ${d.enterprises} 家${d.downloadRate != null ? ` · 下载 ${pct(d.downloadRate)}` : ""}` : undefined }))}
+              format={(n) => `${f(n)} ${unit}`}
+              maxCell={44}
+            />
+          </div>
+          <div className="act-side">
+            <div className="act-k">按星期 · 日均</div>
+            <BarList
+              items={["一", "二", "三", "四", "五", "六", "日"].map((l, k) => {
+                const ds = covered.filter((d) => (new Date(`${d.date}T12:00:00+08:00`).getUTCDay() + 6) % 7 === k)
+                const avg = ds.length ? ds.reduce((a, d) => a + val(d), 0) / ds.length : 0
+                return { key: l, label: `周${l}`, value: avg, tone: k >= 5 ? "var(--accent-4)" : "var(--accent-3)", display: <span className="num">{f(avg)}</span> }
+              })}
+            />
+            <div className="act-stats">
+              <Stat size="xs" label="日均" value={f(covered.length ? total / covered.length : 0)} />
+              <Stat size="xs" label="有数据的天" value={`${covered.length}`} />
+              <Stat size="xs" label="最近 7 天" value={f(covered.slice(-7).reduce((a, d) => a + val(d), 0))} />
+            </div>
+          </div>
+        </div>
+      ) : mode === "week" ? (
+        <TrendChart kind="bar" height={196} points={weekly.map((h) => ({ label: weekPoint(h.week), value: wv(h), partial: !h.complete }))} highlight={weekly.length - 1} format={f} />
+      ) : (
+        <TrendChart height={196} points={cumDays} format={f} yTicks={4} />
+      )}
     </Card>
   )
 }
@@ -143,45 +226,24 @@ const Concentration = ({ o }: { o: Overview }) => {
   const m = o.line === "inspiration" ? o.tasks : o.points
   const p = m.comparable
   const pe = m.comparableExcluded
-  const row = (label: React.ReactNode, x: { current: number; previous: number } | null) => (
-    <tr>
-      <td>{label}</td>
-      <td className="num">{x ? num(x.previous) : "—"}</td>
-      <td className="num">{x ? num(x.current) : "—"}</td>
-      <td style={{ width: 72 }}>{x ? <Delta pair={x} /> : <span className="faint">—</span>}</td>
-    </tr>
-  )
   void pair
   void ex
   return (
     <Card className="span-4" title="集中度" sub={`同星期${unit}`} actions={<Badge tone="outline">前 10 家占 {pct(o.concentration.top10TaskShare)}</Badge>}>
-      <table className="cmp-table">
-        <thead>
-          <tr>
-            <th />
-            <th>上周</th>
-            <th>本周</th>
-            <th>变化</th>
-          </tr>
-        </thead>
-        <tbody>
-          {row("全部", p)}
-          {row(
-            <span className="row" style={{ gap: 6 }}>
-              不含最大客户
-              {!pe && <Tooltip content="在数据页设置排除企业后显示"><Icon name="info" size="xs" className="faint" /></Tooltip>}
-            </span>,
-            pe,
-          )}
-        </tbody>
-      </table>
+      <PairBars
+        format={o.line === "inspiration" ? num : compact}
+        rows={[
+          { key: "all", label: "全部", previous: p?.previous ?? null, current: p?.current ?? null, tail: p ? <Delta pair={p} pill /> : null },
+          { key: "ex", label: <>不含最大客户{!pe && <Tooltip content="在数据页设置排除企业后显示"><span><Icon name="info" size="xs" className="faint" /></span></Tooltip>}</>, previous: pe?.previous ?? null, current: pe?.current ?? null, tail: pe ? <Delta pair={pe} pill /> : null },
+        ]}
+      />
       <div className="divider" />
       <div
         className="alert-row"
         style={{ margin: "0 -16px", paddingTop: 4, paddingBottom: 4 }}
         onClick={() => navigate({ ent: o.concentration.top1.id })}
       >
-        <span className="faint" style={{ fontSize: 12, width: 52 }}>最大客户</span>
+        <span className="faint" style={{ fontSize: 13, width: 52 }}>最大客户</span>
         <span className="name">{o.concentration.top1.name}</span>
         <span className="num">{pct(o.line === "inspiration" ? o.concentration.top1TaskShare : o.concentration.top1PointShare)}</span>
         <Icon name="chevRight" size="sm" className="arrow" />
@@ -292,7 +354,7 @@ const InspirationBlocks = ({ o }: { o: Overview }) => {
           />
         </div>
         <div className="divider" />
-        <div className="row" style={{ gap: 18, fontSize: 12.5, color: "var(--ink-3)" }}>
+        <div className="row" style={{ gap: 18, fontSize: 13.5, color: "var(--ink-3)" }}>
           <span>
             Agent <b className="num" style={{ color: "var(--ink)" }}>{num(i.agent.rows)}</b> 行 · {num(i.agent.turns)} 次提交 · {i.agent.enterprises} 家
           </span>

@@ -60,7 +60,7 @@ const InspirationView = ({ week, excluded }: { week: string | null; excluded: bo
           }))}
         />
         <div className="divider" />
-        <dl className="kv" style={{ fontSize: 12.5 }}>
+        <dl className="kv" style={{ fontSize: 13.5 }}>
           <dt>批量</dt>
           <dd>同一句提示词连续换图</dd>
           <dt>重试 · 微调</dt>
@@ -109,7 +109,7 @@ const Matrix = ({ a, mode, setMode }: { a: InspirationAnalysis; mode: "task" | "
           <span className="scale">
             低<span className="grad" />高
           </span>
-          <span className="row faint" style={{ gap: 6, fontSize: 11.5 }}>
+          <span className="row faint" style={{ gap: 6, fontSize: 12.5 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--ink)", opacity: 0.6 }} />
             单家占一半以上
           </span>
@@ -131,7 +131,7 @@ const Matrix = ({ a, mode, setMode }: { a: InspirationAnalysis; mode: "task" | "
             </div>
             {models.map((m) => {
               const c = cell(i, m)
-              if (!c || c.tasks < 5) return <div key={m} className="cell empty" />
+              if (!c || c.tasks < 5) return <div key={m} className="cell none" />
               const v = value(c)
               const { bg, ink } = heat(v, base)
               const flagged = v != null && v < base - 0.2 && c.enterprises >= 3
@@ -207,7 +207,7 @@ const VideoView = ({ week, excluded }: { week: string | null; excluded: boolean 
             </tbody>
           </table>
         </div>
-        <div className="row faint" style={{ padding: "10px 16px", fontSize: 12, gap: 16 }}>
+        <div className="row faint" style={{ padding: "10px 16px", fontSize: 13, gap: 16 }}>
           <span>{models.length} 个模型</span>
           <span>
             重复生成链 <b className="num" style={{ color: "var(--ink)" }}>{a.rerollChains}</b> 条
@@ -222,8 +222,8 @@ const VideoView = ({ week, excluded }: { week: string | null; excluded: boolean 
           {a.failureSamples.slice(0, 6).map((t, i) => (
             <button key={t.rowKey} className="row" style={{ gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line-2)", textAlign: "left" }} onClick={() => setView(i)}>
               <Badge tone={t.failure?.category === "material" ? "down" : undefined}>{t.failure ? failureName[t.failure.category] : "失败"}</Badge>
-              <span className="ellipsis" style={{ flex: 1, fontSize: 12.5 }}>{t.failure?.providerMessage ?? t.prompt}</span>
-              <span className="faint ellipsis" style={{ maxWidth: 120, fontSize: 12 }}>{t.enterprise.name}</span>
+              <span className="ellipsis" style={{ flex: 1, fontSize: 13.5 }}>{t.failure?.providerMessage ?? t.prompt}</span>
+              <span className="faint ellipsis" style={{ maxWidth: 120, fontSize: 13 }}>{t.enterprise.name}</span>
             </button>
           ))}
           {!a.failureSamples.length && <span className="faint">没有失败</span>}

@@ -47,7 +47,7 @@ export const ReportPage = () => {
               本周做了什么 <SourceTag a={r.done} />
             </h2>
             <InlineEdit value={r.done?.text ?? ""} placeholder="写下本周的动作" onSave={(v) => save("done", v)} />
-            <div className="row" style={{ gap: 24, marginTop: 12, fontSize: 12.5, color: "var(--ink-3)" }}>
+            <div className="row" style={{ gap: 24, marginTop: 12, fontSize: 13.5, color: "var(--ink-3)" }}>
               <span>
                 触达已发送 <b className="num" style={{ color: "var(--ink)" }}>{r.touches.sent}</b>
               </span>

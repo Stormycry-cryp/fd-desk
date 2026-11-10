@@ -260,7 +260,7 @@ export const Select = <T extends string>({ value, onChange, options, placeholder
         >
           {prefix && <span className="prefix">{prefix}</span>}
           {cur?.icon && <Icon name={cur.icon} size="sm" className="muted" />}
-          <span className={cx("label", !cur && "placeholder")}>{cur ? (renderValue ? renderValue(cur) : cur.label) : placeholder}</span>
+          <span className={cx("tv", !cur && "placeholder")}>{cur ? (renderValue ? renderValue(cur) : cur.label) : placeholder}</span>
           <Icon name="chevDown" size="xs" className="chev" />
         </button>
       )}

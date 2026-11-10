@@ -1,14 +1,14 @@
 .btn {
-  --h: 32px;
+  --h: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: var(--h);
-  padding: 0 12px;
+  padding: 0 14px;
   border-radius: var(--r-md);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
   user-select: none;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
@@ -25,24 +25,24 @@
 }
 
 .btn.sm {
-  --h: 28px;
-  padding: 0 10px;
-  font-size: 12.5px;
+  --h: 32px;
+  padding: 0 12px;
+  font-size: 13.5px;
   border-radius: var(--r-sm);
 }
 
 .btn.xs {
-  --h: 24px;
+  --h: 27px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: 13px;
   gap: 4px;
   border-radius: var(--r-sm);
 }
 
 .btn.lg {
-  --h: 38px;
+  --h: 42px;
   padding: 0 16px;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .btn.primary {
@@ -116,7 +116,7 @@
 }
 
 .icon-btn {
-  --s: 30px;
+  --s: 34px;
   display: inline-grid;
   place-items: center;
   width: var(--s);
@@ -138,12 +138,12 @@
 }
 
 .icon-btn.sm {
-  --s: 26px;
+  --s: 30px;
   border-radius: var(--r-sm);
 }
 
 .icon-btn.xs {
-  --s: 22px;
+  --s: 25px;
   border-radius: var(--r-xs);
 }
 
@@ -155,13 +155,13 @@
 .kbd {
   display: inline-grid;
   place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
   border-radius: 4px;
   background: var(--surface);
   color: var(--ink-3);
-  font: 500 10.5px/1 var(--font);
+  font: 500 11.5px/1 var(--font);
   box-shadow: inset 0 -1px 0 var(--line-strong), 0 0 0 1px var(--line);
 }
 
@@ -174,8 +174,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 10px;
+  height: 36px;
+  padding: 0 12px;
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--line-strong);
@@ -194,8 +194,8 @@
 }
 
 .field.sm {
-  height: 28px;
-  padding: 0 8px;
+  height: 32px;
+  padding: 0 10px;
   border-radius: var(--r-sm);
 }
 
@@ -221,7 +221,7 @@
 .field .suffix {
   color: var(--ink-3);
   padding-left: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .field.quiet {
@@ -295,8 +295,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 8px 0 10px;
+  height: 36px;
+  padding: 0 10px 0 12px;
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--line-strong);
@@ -315,7 +315,7 @@
   box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-ring);
 }
 
-.trigger .label {
+.trigger .tv {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -338,9 +338,9 @@
 }
 
 .trigger.sm {
-  height: 28px;
+  height: 32px;
   border-radius: var(--r-sm);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .trigger.ghost {
@@ -363,10 +363,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 10px;
+  height: 32px;
+  padding: 0 13px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-2);
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--line-strong);
@@ -464,7 +464,7 @@
 }
 
 .listbox .search .field {
-  height: 28px;
+  height: 32px;
   box-shadow: none;
   background: rgba(24, 24, 27, 0.04);
 }
@@ -473,8 +473,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 32px;
-  padding: 6px 8px;
+  min-height: 36px;
+  padding: 7px 10px;
   border-radius: var(--r-sm);
   color: var(--ink);
   cursor: pointer;
@@ -502,13 +502,13 @@
 
 .option .hint {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
 }
 
 .option .count {
   color: var(--ink-4);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -541,7 +541,7 @@
 
 .option-group {
   padding: 8px 8px 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--ink-4);
   letter-spacing: 0.02em;
@@ -554,8 +554,8 @@
 }
 
 .check-box {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   border-radius: 4.5px;
   display: inline-grid;
   place-items: center;
@@ -637,8 +637,8 @@
 }
 
 .radio-dot {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   margin-top: 1px;
   border-radius: 50%;
   flex: none;
@@ -674,7 +674,7 @@
 
 .radio .hint {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .radio.cards {
@@ -757,8 +757,8 @@
 .seg button {
   position: relative;
   z-index: 1;
-  height: 28px;
-  padding: 0 12px;
+  height: 32px;
+  padding: 0 14px;
   border-radius: 6px;
   color: var(--ink-3);
   font-weight: 500;
@@ -777,7 +777,7 @@
   color: var(--ink);
 }
 
-.seg .thumb {
+.seg .seg-ind {
   position: absolute;
   z-index: 0;
   top: 2px;
@@ -790,9 +790,9 @@
 }
 
 .seg.sm button {
-  height: 24px;
-  padding: 0 10px;
-  font-size: 12.5px;
+  height: 28px;
+  padding: 0 11px;
+  font-size: 13.5px;
 }
 
 .seg.block {
@@ -805,7 +805,7 @@
 }
 
 .seg .count {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--ink-4);
   font-variant-numeric: tabular-nums;
 }
@@ -819,8 +819,8 @@
 
 .tabs button {
   position: relative;
-  height: 38px;
-  padding: 0 10px;
+  height: 44px;
+  padding: 0 12px;
   color: var(--ink-3);
   font-weight: 500;
   display: inline-flex;
@@ -845,7 +845,7 @@
   border-radius: 999px;
   background: rgba(24, 24, 27, 0.06);
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: 12px;
   display: inline-grid;
   place-items: center;
   font-variant-numeric: tabular-nums;
@@ -871,10 +871,10 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 20px;
-  padding: 0 7px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
   white-space: nowrap;
   background: rgba(24, 24, 27, 0.06);
@@ -928,7 +928,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-2);
   white-space: nowrap;
 }
@@ -1014,7 +1014,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1033,7 +1033,7 @@
 }
 
 .delta.pill {
-  height: 20px;
+  height: 22px;
   padding: 0 6px;
   border-radius: 999px;
 }
@@ -1062,6 +1062,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  line-height: 1;
+  vertical-align: middle;
   font-variant-numeric: tabular-nums;
   min-width: 0;
 }
@@ -1114,7 +1116,7 @@
   border-radius: var(--r-sm);
   background: rgba(24, 24, 27, 0.94);
   color: #fafafa;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   pointer-events: none;
   animation: fade-in var(--t-fast) var(--ease);
@@ -1187,7 +1189,7 @@
   flex: 1;
   min-width: 0;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .drawer-body {
@@ -1244,14 +1246,14 @@
 
 .modal-head h3 {
   flex: 1;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .modal-head .sub {
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 400;
   margin-top: 2px;
 }
@@ -1272,7 +1274,7 @@
 .modal-foot .left {
   margin-right: auto;
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .toasts {
@@ -1293,14 +1295,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
-  padding: 0 8px 0 14px;
+  min-height: 44px;
+  padding: 0 8px 0 16px;
   border-radius: var(--r-lg);
   background: #1c1c20;
   color: #fafafa;
   box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.35);
   animation: pop-in-up var(--t-slow) var(--ease-out);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .toast.leaving {
@@ -1373,7 +1375,7 @@
 }
 
 .empty .d {
-  font-size: 12.5px;
+  font-size: 13.5px;
   max-width: 320px;
 }
 
@@ -1394,14 +1396,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 10px 12px 6px 16px;
+  min-height: 54px;
+  padding: 12px 14px 6px 18px;
 }
 
 .card-head h3 {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -1411,11 +1413,11 @@
 .card-head h3 .sub {
   font-weight: 400;
   color: var(--ink-4);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .card-body {
-  padding: 4px 16px 16px;
+  padding: 4px 18px 18px;
   flex: 1;
   min-width: 0;
 }
@@ -1464,7 +1466,7 @@
 .inline-edit .actions .hint {
   margin-right: auto;
   color: var(--ink-4);
-  font-size: 11.5px;
+  font-size: 12.5px;
   display: flex;
   gap: 4px;
   align-items: center;
@@ -1474,7 +1476,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink-4);
   white-space: nowrap;
 }
@@ -1571,20 +1573,20 @@ button.thumb:hover img {
   align-items: center;
   gap: 6px;
   color: var(--ink-4);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
   padding: 0 2px;
 }
 
 .stepper .step i {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   box-shadow: inset 0 0 0 1.25px var(--ink-5);
   font-style: normal;
-  font-size: 10px;
+  font-size: 11px;
   background: var(--surface);
   transition: all var(--t) var(--ease);
 }
@@ -1630,8 +1632,8 @@ button.stepper .step:hover,
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 32px;
-  padding: 0 4px 0 10px;
+  height: 36px;
+  padding: 0 4px 0 12px;
   border-radius: var(--r-md);
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--line);
@@ -1644,7 +1646,7 @@ button.stepper .step:hover,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 12px var(--mono);
+  font: 13px var(--mono);
   color: var(--ink-2);
 }
 
@@ -1657,7 +1659,7 @@ button.stepper .step:hover,
 
 .kv dt {
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .kv dd {
@@ -1685,7 +1687,7 @@ button.stepper .step:hover,
 
 .form-row .lbl .d {
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .form-row .ctl {
@@ -1697,7 +1699,7 @@ button.stepper .step:hover,
 
 .label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--ink-3);
   margin-bottom: 6px;
@@ -1760,7 +1762,7 @@ button.stepper .step:hover,
   border: 0;
   outline: 0;
   background: none;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--ink);
 }
 
@@ -1776,7 +1778,7 @@ button.stepper .step:hover,
   border-top: 1px solid var(--line-2);
   background: var(--surface-2);
   color: var(--ink-4);
-  font-size: 11.5px;
+  font-size: 12.5px;
 }
 
 .palette .foot span {
@@ -1861,7 +1863,7 @@ button.stepper .step:hover,
   border-radius: var(--r-md);
   background: var(--warn-weak);
   color: #7c5212;
-  font-size: 12.5px;
+  font-size: 13.5px;
 }
 
 .banner.info {

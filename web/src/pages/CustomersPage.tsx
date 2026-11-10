@@ -207,7 +207,7 @@ export const CustomersPage = () => {
           </Button>
         )}
         <span className="spacer" />
-        <span className="faint num" style={{ fontSize: 12 }}>
+        <span className="faint num" style={{ fontSize: 13 }}>
           {filtered.length} 家 · 活跃 {active}
         </span>
       </div>
@@ -292,13 +292,15 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
               <span>{r.owner.sales ?? "未分配"}</span>
               <span>·</span>
               <span>{ago(r.lastActiveAt)}</span>
-              {r.enterprise.kind !== "customer" && r.enterprise.kind !== "unknown" && <Badge>{kindName[r.enterprise.kind]}</Badge>}
-              {r.excluded && <Badge tone="outline">已排除</Badge>}
-              {!r.downloadSignalReliable && (
-                <Tooltip content="任务多但几乎不下载，可能用别的方式保存结果">
-                  <span className="badge warn">下载信号存疑</span>
+              {!r.downloadSignalReliable ? (
+                <Tooltip content={`任务多但几乎不下载，可能用别的方式保存结果${r.excluded ? "；已从对比中排除" : ""}`}>
+                  <span className="badge warn">下载存疑</span>
                 </Tooltip>
-              )}
+              ) : r.excluded ? (
+                <Badge tone="outline">已排除</Badge>
+              ) : r.enterprise.kind !== "customer" && r.enterprise.kind !== "unknown" ? (
+                <Badge>{kindName[r.enterprise.kind]}</Badge>
+              ) : null}
             </span>
           </div>
         </div>
@@ -326,7 +328,7 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
         {(i?.topIntent ?? v?.topMode) ? (
           <span className="row" style={{ gap: 6 }}>
             <span className="ellipsis" style={{ maxWidth: 72 }}>{i?.topIntent ?? v?.topMode}</span>
-            <span className="faint num" style={{ fontSize: 12 }}>{pct(i?.topIntentShare ?? v?.topModeShare)}</span>
+            <span className="faint num" style={{ fontSize: 13 }}>{pct(i?.topIntentShare ?? v?.topModeShare)}</span>
           </span>
         ) : (
           <span className="faint">—</span>
@@ -363,7 +365,7 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
       </td>
       <td>{r.lastTouch ? <StatusTag s={r.lastTouch.status} /> : <span className="faint">—</span>}</td>
       <td>
-        <Spark values={sparkVals} tone={trend} w={56} />
+        <Spark values={sparkVals} tone={trend} w={50} />
       </td>
       <td className="go">
         <Icon name="chevRight" size="sm" />

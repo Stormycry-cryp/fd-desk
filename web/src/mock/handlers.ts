@@ -4,7 +4,7 @@ import { hash } from "./rand"
 import { state } from "./state"
 import { chainsOf, queryTasks } from "./tasks"
 import { alertsFor, coverage, detail, entRef, overview, report, roster } from "./views"
-import { BY_ID, ENTS, NOW, WEEKS, cellAt } from "./world"
+import { BY_ID, COVER, ENTS, NOW, WEEKS, cellAt } from "./world"
 
 export class MockError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -298,6 +298,30 @@ const routes: Record<string, Handler> = {
   },
   "POST /api/reruns/:id/confirm": () => {
     throw new MockError(501, "not_implemented", "重跑对比在 M4 实现")
+  },
+  "GET /api/daily": ({ query }) => {
+    const line = query.line as Line
+    const ents = query.enterprise ? [BY_ID.get(query.enterprise)].filter(Boolean) : ENTS
+    const out = []
+    for (let w = 0; w < WEEKS.length; w++)
+      for (let d = 0; d < 7; d++) {
+        const t = new Date(`${WEEKS[w]}T12:00:00+08:00`).getTime() + d * 86400000
+        const date = new Date(t).toISOString().slice(0, 10)
+        if (date < query.from || date > query.to) continue
+        const covered = COVER[w].includes(d)
+        let tasks = 0, points = 0, dl = 0, n = 0
+        for (const e of ents) {
+          const c = cellAt(e!, line, w)
+          const v = c?.days[d] ?? 0
+          if (!c || !v || !covered) continue
+          tasks += v
+          points += Math.round((c.points * v) / Math.max(1, c.tasks))
+          dl += v * c.downloadRate
+          n++
+        }
+        out.push({ date, covered, tasks, points, enterprises: n, downloadRate: tasks ? dl / tasks : null })
+      }
+    return out
   },
   "GET /api/conversion": ({ query }) => conversion(query.line as Line),
 }

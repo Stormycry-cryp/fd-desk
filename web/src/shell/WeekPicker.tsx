@@ -6,7 +6,7 @@ import { CoverageDots } from "../ui/display"
 
 export const WeekPicker = () => {
   const { week, meta, cov, line } = useCtx()
-  if (!meta || !week) return <span className="skel" style={{ width: 168, height: 32, borderRadius: 8 }} />
+  if (!meta || !week) return <span className="skel" style={{ width: 168, height: 36, borderRadius: 8 }} />
   const latest = meta.latestWeek[line]
   const options = [...meta.weeks].reverse().map((w) => {
     const c = cov(w)
@@ -16,7 +16,7 @@ export const WeekPicker = () => {
       label: (
         <span className="row" style={{ gap: 10 }}>
           <span className="num" style={{ minWidth: 76 }}>{weekLabel(w)}</span>
-          <span className="faint num" style={{ fontSize: 12 }}>第 {isoWeek(w)} 周</span>
+          <span className="faint num" style={{ fontSize: 13 }}>第 {isoWeek(w)} 周</span>
         </span>
       ),
       lead: c ? <CoverageDots days={c.days} week={w} /> : <span style={{ width: 60 }} />,

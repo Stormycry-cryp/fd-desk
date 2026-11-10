@@ -93,7 +93,7 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
               <i />
               <span className="stack">
                 <span style={{ color: "var(--ink-2)", fontWeight: 500 }}>{mode === "mock" ? "模拟数据" : "本机后端"}</span>
-                <span className="faint" style={{ fontSize: 11 }}>
+                <span className="faint" style={{ fontSize: 12 }}>
                   {meta?.lastImportAt ? `导入于 ${time(meta.lastImportAt)}` : "—"}
                 </span>
               </span>

@@ -47,8 +47,8 @@
   --t-fast: 120ms;
   --t: 180ms;
   --t-slow: 260ms;
-  --sidebar: 224px;
-  --topbar: 56px;
+  --sidebar: 236px;
+  --topbar: 60px;
 }
 
 *,
@@ -67,7 +67,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 13px/1.5 var(--font);
+  font: 14px/1.55 var(--font);
   font-feature-settings: "cv11", "ss01", "tnum";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -160,8 +160,8 @@ p {
 }
 
 .icon {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   flex: none;
   stroke: currentColor;
   fill: none;
@@ -171,13 +171,13 @@ p {
 }
 
 .icon.sm {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 .icon.xs {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
 }
 
 .icon.lg {

@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { Alert, ContractState, EnterpriseDetail, EnterpriseKind, Line, LineDetail, SampleReason, Task } from "@spec/contract"
-import { useChains, useEnterprise, useTasks, useCall, usePutNextAction } from "../../api/hooks"
+import { useChains, useDaily, useEnterprise, useTasks, useCall, usePutNextAction } from "../../api/hooks"
 import { useCtx } from "../../lib/ctx"
 import { alertName, contractName, failureName, kindName, lineName, offerName, patternName, poolAction, poolName, sampleReasonName, slotName } from "../../lib/labels"
 import { navigate } from "../../lib/route"
 import { ago, compact, num, pct, time, weekLabel, weekShort } from "../../lib/format"
 import { Button, IconButton, Segmented, TextArea } from "../../ui/controls"
 import { Avatar, Badge, Empty, ErrorState, InlineEdit, LevelTag, Phone, Rate, Sev, Skel, SourceTag, Stat, Thumb, Delta } from "../../ui/display"
-import { StackBar, TrendChart } from "../../ui/charts"
+import { Heatmap, StackBar, TrendChart } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
 import { Drawer, Menu, Select, Tooltip, toast } from "../../ui/overlays"
 import { MovementTag, PoolTag, StatusTag } from "../bits"
@@ -27,11 +27,11 @@ export const EnterpriseDrawer = ({ id }: { id: string }) => {
       open={open}
       onClose={close}
       width={720}
-      title={<span className="faint" style={{ fontWeight: 500, fontSize: 12.5 }}>企业</span>}
+      title={<span className="faint" style={{ fontWeight: 500, fontSize: 13.5 }}>企业</span>}
       actions={
         <>
           <Tooltip content="上一家 / 下一家">
-            <span className="row" style={{ gap: 2, color: "var(--ink-4)", fontSize: 11.5, marginRight: 6 }}>
+            <span className="row" style={{ gap: 2, color: "var(--ink-4)", fontSize: 12.5, marginRight: 6 }}>
               <kbd className="kbd">J</kbd>
               <kbd className="kbd">K</kbd>
             </span>
@@ -106,7 +106,7 @@ const Header = ({ d, week, page }: { d: EnterpriseDetail; week: string; page?: b
             />
             <Select size="sm" ghost value={d.contract} onChange={(v) => save({ contract: v as ContractState }, "已更新签约状态")} options={(Object.keys(contractName) as ContractState[]).map((k) => ({ value: k, label: contractName[k] }))} popWidth={160} />
             {lines.map((l) => (
-              <span key={l} className="row" style={{ gap: 6, fontSize: 12.5, color: "var(--ink-3)", marginLeft: 4 }}>
+              <span key={l} className="row" style={{ gap: 6, fontSize: 13.5, color: "var(--ink-3)", marginLeft: 4 }}>
                 <span className="faint">{lineName[l]}</span>
                 <LevelTag level={d.lines[l]!.level} empty="—" />
               </span>
@@ -190,6 +190,7 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
         </h4>
         <TrendChart points={pts} height={150} kind="bar" highlight={pts.length - 1} format={(v) => compact(v)} />
       </div>
+      <EntDaily id={d.enterprise.id} line={ld.line} />
       <div className="ent-section">
         <h4>
           在做什么
@@ -235,7 +236,7 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
         {insp && ld.patterns.length > 0 && <Patterns ld={ld} />}
         {!insp && ld.failures.length > 0 && (
           <div className="row" style={{ gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-            <span className="faint" style={{ fontSize: 12 }}>失败</span>
+            <span className="faint" style={{ fontSize: 13 }}>失败</span>
             {ld.failures.map((f) => (
               <Badge key={f.category} tone={f.category === "material" ? "down" : undefined}>
                 {failureName[f.category]} {f.count}
@@ -244,8 +245,8 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
           </div>
         )}
         {ld.models.length > 1 && (
-          <div className="row" style={{ gap: 14, marginTop: 14, fontSize: 12.5, color: "var(--ink-3)", flexWrap: "wrap" }}>
-            <span className="faint" style={{ fontSize: 12 }}>模型</span>
+          <div className="row" style={{ gap: 14, marginTop: 14, fontSize: 13.5, color: "var(--ink-3)", flexWrap: "wrap" }}>
+            <span className="faint" style={{ fontSize: 13 }}>模型</span>
             {ld.models.slice(0, 4).map((m) => (
               <span key={m.model} className="row" style={{ gap: 6 }}>
                 <span style={{ color: "var(--ink-2)" }}>{m.model}</span>
@@ -319,7 +320,7 @@ const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) =>
                     </Tooltip>
                   </span>
                 ))}
-                {c.tasks.length > 7 && <span className="faint" style={{ fontSize: 12, marginLeft: 4 }}>+{c.tasks.length - 7}</span>}
+                {c.tasks.length > 7 && <span className="faint" style={{ fontSize: 13, marginLeft: 4 }}>+{c.tasks.length - 7}</span>}
               </div>
             </div>
           ))}
@@ -438,10 +439,10 @@ const AlertsTouches = ({ d }: { d: EnterpriseDetail }) => {
                 <div style={{ flex: 1 }}>
                   <div className="row" style={{ gap: 6 }}>
                     <b style={{ fontWeight: 500 }}>{alertName[a.kind]}</b>
-                    <span className="faint" style={{ fontSize: 12 }}>{lineName[a.line]}</span>
+                    <span className="faint" style={{ fontSize: 13 }}>{lineName[a.line]}</span>
                     {a.suggestedPool && <PoolTag p={a.suggestedPool} />}
                   </div>
-                  <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>{a.facts.join("；")}</div>
+                  <div className="muted" style={{ fontSize: 13.5, marginTop: 2 }}>{a.facts.join("；")}</div>
                 </div>
               </div>
             ))}
@@ -454,7 +455,7 @@ const AlertsTouches = ({ d }: { d: EnterpriseDetail }) => {
           <div className="stack" style={{ gap: 2 }}>
             {d.touches.map((t) => (
               <div key={t.id} className="row" style={{ gap: 10, minHeight: 34 }}>
-                <span className="num faint" style={{ width: 84, fontSize: 12 }}>{weekShort(t.week)} {slotName[t.slot]}</span>
+                <span className="num faint" style={{ width: 84, fontSize: 13 }}>{weekShort(t.week)} {slotName[t.slot]}</span>
                 <PoolTag p={t.goal} />
                 <span className="ellipsis" style={{ flex: 1 }}>{t.offer.text ?? offerName[t.offer.kind]}</span>
                 {t.outcome && <Delta pair={t.outcome.tasks} />}
@@ -491,7 +492,7 @@ const Notes = ({ d }: { d: EnterpriseDetail }) => {
         {d.notes.map((n) => (
           <div key={n.id} className="row" style={{ alignItems: "flex-start", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
             <div style={{ flex: 1, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
-            <span className="faint num" style={{ fontSize: 12 }}>{time(n.createdAt)}</span>
+            <span className="faint num" style={{ fontSize: 13 }}>{time(n.createdAt)}</span>
             <Menu items={[{ key: "del", label: "删除", icon: "trash", danger: true, onSelect: () => del.mutate({ params: { id: n.id } }) }]} trigger={({ toggle, ref }) => <IconButton ref={ref as any} size="xs" icon="more" label="更多" onClick={toggle} />} width={140} />
           </div>
         ))}
@@ -524,3 +525,30 @@ const EntSkeleton = () => (
 )
 
 export { poolName }
+
+const EntDaily = ({ id, line }: { id: string; line: Line }) => {
+  const { meta } = useCtx()
+  const cov = meta?.coverage.filter((c) => c.line === line).flatMap((c) => c.days).sort() ?? []
+  const q = useDaily(line, meta?.weeks[0] ?? null, cov[cov.length - 1] ?? null, id)
+  const days = q.data ?? []
+  const insp = line === "inspiration"
+  const active = days.filter((d) => d.covered && d.tasks > 0).length
+  if (q.error || (!q.isLoading && !days.length)) return null
+  return (
+    <div className="ent-section">
+      <h4>
+        每天使用
+        <span className="sub">{active} 天有使用</span>
+      </h4>
+      {q.isLoading ? (
+        <div className="skel" style={{ height: 150, borderRadius: 8 }} />
+      ) : (
+        <Heatmap
+          days={days.map((d) => ({ date: d.date, covered: d.covered, value: insp ? d.tasks : d.points, note: d.covered && d.tasks ? `${num(d.tasks)} 任务 · ${compact(d.points)} 点${d.downloadRate != null ? ` · 下载 ${pct(d.downloadRate)}` : ""}` : undefined }))}
+          format={(n) => (insp ? `${num(n)} 个任务` : `${compact(n)} 点`)}
+          maxCell={22}
+        />
+      )}
+    </div>
+  )
+}

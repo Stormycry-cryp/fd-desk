@@ -88,7 +88,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   {t.intent && <Badge>{t.intent}</Badge>}
                   {t.pattern !== "none" && t.pattern !== "new" && <Badge tone={t.pattern === "batch" ? "accent" : t.pattern === "retry" || t.pattern === "tweak" ? "warn" : undefined}>{patternName[t.pattern]}</Badge>}
                 </div>
-                <div className="faint" style={{ marginTop: 8, fontSize: 12 }}>
+                <div className="faint" style={{ marginTop: 8, fontSize: 13 }}>
                   {time(t.createdAt)} · {t.user?.name ?? "未知成员"}
                 </div>
               </div>
@@ -113,14 +113,14 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
               {t.failure && (
                 <div className="sec">
                   <span className="label">失败 · {failureName[t.failure.category]}</span>
-                  <div className="stack" style={{ gap: 6, fontSize: 12.5 }}>
+                  <div className="stack" style={{ gap: 6, fontSize: 13.5 }}>
                     <span>
                       <span className="faint">客户看到 </span>
                       {t.failure.userMessage ?? "—"}
                     </span>
                     <span>
                       <span className="faint">真实原因 </span>
-                      <code style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{t.failure.providerMessage ?? "—"}</code>
+                      <code style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{t.failure.providerMessage ?? "—"}</code>
                     </span>
                   </div>
                 </div>
@@ -155,7 +155,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   )}
                   <dt>记录</dt>
                   <dd>
-                    <code style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--ink-3)" }}>{t.sourceId}</code>
+                    <code style={{ fontFamily: "var(--mono)", fontSize: 12.5, color: "var(--ink-3)" }}>{t.sourceId}</code>
                   </dd>
                 </dl>
               </div>
