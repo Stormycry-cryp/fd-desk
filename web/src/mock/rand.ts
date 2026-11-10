@@ -27,9 +27,18 @@ export const between = (r: Rand, lo: number, hi: number) => lo + (hi - lo) * r()
 export const int = (r: Rand, lo: number, hi: number) => Math.floor(between(r, lo, hi + 1))
 
 export const normal = (r: Rand) => {
-  const u = Math.max(r(), 1e-9)
-  const v = r()
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+  let s = 0
+  for (let i = 0; i < 12; i++) s += r()
+  return s - 6
+}
+
+export const shuffle = <T,>(r: Rand, xs: T[]) => {
+  const a = [...xs]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
 }
 
 export const weighted = <T,>(r: Rand, xs: readonly (readonly [T, number])[]) => {

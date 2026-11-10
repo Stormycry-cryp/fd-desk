@@ -1,6 +1,6 @@
 import type { ContractState, EnterpriseKind, EnterpriseRef, FailureCategory, Line } from "@spec/contract"
 import { garmentKeys, type Garment } from "./art"
-import { between, clamp, hash, int, normal, pick, rng, weighted, type Rand } from "./rand"
+import { between, clamp, hash, int, normal, pick, rng, shuffle, weighted, type Rand } from "./rand"
 
 export const WEEKS = ["2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"]
 export const LATEST = 11
@@ -111,11 +111,11 @@ export interface Cell {
 
 const phone = (r: Rand) => `1${pick(r, ["3", "5", "7", "8", "9"])}${String(int(r, 0, 999999999)).padStart(9, "0")}`
 
-const lognorm = (r: Rand, sd: number) => Math.exp(normal(r) * sd - (sd * sd) / 2)
+const lognorm = (r: Rand, sd: number) => Math.max(0.25, 1 + normal(r) * sd)
 
 const spreadDays = (r: Rand, tasks: number, nDays: number) => {
   const chosen = new Set<number>()
-  const order = [0, 1, 2, 3, 4, 5, 6].sort(() => r() - 0.5)
+  const order = shuffle(r, [0, 1, 2, 3, 4, 5, 6])
   for (const d of order) {
     if (chosen.size >= nDays) break
     if (d >= 5 && r() < 0.55) continue
@@ -162,7 +162,7 @@ const activeAt = (story: Story, start: number, end: number, i: number, p: number
 const intentMix = (r: Rand, line: Line): [string, number][] => {
   if (line === "video") return []
   const main = weighted(r, [["换色", 3], ["印花面料", 2], ["换装上身", 2.4], ["换模特换脸", 1.4], ["换背景", 1], ["平铺白底", 1], ["改款设计", 1.2], ["详情排版", 0.6], ["姿势角度", 0.6], ["修图去除", 0.6]] as const)
-  const others = INTENTS.filter((x) => x !== main).sort(() => r() - 0.5).slice(0, int(r, 1, 4))
+  const others = shuffle(r, INTENTS.filter((x) => x !== main)).slice(0, int(r, 1, 4))
   const mainShare = between(r, 0.42, 0.82)
   const rest = others.map(() => r())
   const sum = rest.reduce((a, b) => a + b, 0)
@@ -171,7 +171,7 @@ const intentMix = (r: Rand, line: Line): [string, number][] => {
 
 const modeMix = (r: Rand): [string, number][] => {
   const main = weighted(r, [["自由创作", 4], ["多图参考", 3], ["图生视频", 3], ["首尾帧", 0.6], ["全能替换", 0.6], ["动作跟随", 0.4]] as const)
-  const others = VIDEO_MODES.filter((x) => x !== main).sort(() => r() - 0.5).slice(0, int(r, 0, 2))
+  const others = shuffle(r, VIDEO_MODES.filter((x) => x !== main)).slice(0, int(r, 0, 2))
   const mainShare = others.length ? between(r, 0.5, 0.88) : 1
   return [[main, mainShare], ...others.map((o) => [o, (1 - mainShare) / others.length] as [string, number])]
 }
@@ -186,7 +186,7 @@ const build = () => {
   tierOf.video[3] = "top"
   for (const line of ["inspiration", "video"] as Line[]) {
     const slots = line === "inspiration" ? Array.from({ length: 150 }, (_, i) => i).filter((i) => i !== 0 && i !== 3) : [0, ...Array.from({ length: 30 }, (_, i) => 1 + i * 5), ...Array.from({ length: 25 }, (_, i) => 151 + i)].filter((i, k, a) => i !== 3 && a.indexOf(i) === k)
-    const shuffled = slots.sort(() => r() - 0.5)
+    const shuffled = shuffle(r, slots)
     let k = 0
     for (const [tier, n] of TIER_COUNTS[line]) for (let j = 0; j < n && k < shuffled.length; j++) tierOf[line][shuffled[k++]] = tier
   }
@@ -246,6 +246,7 @@ const build = () => {
       prof.model = m0
       prof.models = [[m0, s0], [m1, 1 - s0]]
       for (let w = 0; w < WEEKS.length; w++) {
+        const r = rng(`cell|${i}|${line}|${w}`)
         if (!activeAt(story, start, end, w, spec.activeP, r)) {
           prof.weeks.push(null)
           continue
@@ -263,8 +264,9 @@ const build = () => {
         const downloaded = Math.round(covered * dl)
         const failed = Math.round(covered * prof.failRate * between(r, 0.5, 1.5))
         const failures: Partial<Record<FailureCategory, number>> = {}
+        const fr = rng(`fail|${i}|${line}|${w}`)
         for (let f = 0; f < failed; f++) {
-          const c = weighted(r, [["upstream", 4], ["moderation", 2], ["timeout", 2], ["material", line === "video" ? 2 : 0.2], ["other", 0.4]] as const)
+          const c = weighted(fr, [["upstream", 4], ["moderation", 2], ["timeout", 2], ["material", line === "video" ? 2 : 0.2], ["other", 0.4]] as const)
           failures[c] = (failures[c] ?? 0) + 1
         }
         const ppt = line === "inspiration" ? between(r, 3.2, 4.2) : i === 3 ? between(r, 85, 105) : between(r, 35, 80)
