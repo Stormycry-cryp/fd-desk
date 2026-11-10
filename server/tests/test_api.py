@@ -28,6 +28,30 @@ def test_database_matches_all_golden_values(client):
     compare(read_spec("golden.json"), summarize(client.app.state.engine))
 
 
+@pytest.mark.parametrize("line", ["inspiration", "video"])
+def test_daily_counts_match_real_tasks_and_coverage(client, line):
+    params = {"line": line, "from": "2026-11-02", "to": "2026-11-08"}
+    response = client.get("/api/daily", params=params)
+    assert response.status_code == 200
+    days = response.json()
+    group = client.app.state.engine.group(line, WEEK)
+    assert len(days) == 7 and all(day["covered"] for day in days)
+    assert sum(day["tasks"] for day in days) == len(group)
+    assert sum(day["points"] for day in days) == int(group.points.sum())
+    for day in days:
+        part = group[group.day == day["date"]]
+        assert day["enterprises"] == part.enterprise_id.nunique()
+        assert day["downloadRate"] == (float(part.downloaded.mean()) if len(part) else None)
+    eid = str(group.enterprise_id.iloc[0])
+    own = client.get("/api/daily", params={**params, "enterprise": eid}).json()
+    assert sum(day["tasks"] for day in own) == int((group.enterprise_id == eid).sum())
+    empty = client.get("/api/daily", params={"line": line, "from": "2026-09-01", "to": "2026-09-01"}).json()
+    assert empty == [{"date": "2026-09-01", "covered": False, "tasks": 0, "points": 0, "enterprises": 0, "downloadRate": None}]
+    assert client.get("/api/daily", params={**params, "from": "2026-11-10"}).status_code == 422
+    assert client.get("/api/daily", params={**params, "from": "2026-02-30"}).status_code == 422
+    assert client.get("/api/daily", params={**params, "enterprise": "unknown"}).status_code == 404
+
+
 @pytest.mark.parametrize("line,tasks,stable,points", [("inspiration", 9077, 46, 33586), ("video", 881, 19, 60016)])
 def test_overview_and_incomplete_week(client, line, tasks, stable, points):
     response = client.get("/api/overview", params={"line": line, "week": WEEK})

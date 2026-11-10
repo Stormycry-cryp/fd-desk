@@ -11,6 +11,8 @@ dependencies = [
   "httpx>=0.28,<1",
   "httpx2",
   "python-multipart>=0.0.20,<1",
+  "python-dotenv>=1,<2",
+  "rapidfuzz>=3.14,<4",
 ]
 
 [dependency-groups]
@@ -29,6 +31,8 @@ packages = ["fd_desk"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --basetemp=../data/verification/pytest"
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 1
 
 [tool.ruff]
 target-version = "py312"

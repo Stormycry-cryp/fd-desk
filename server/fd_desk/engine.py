@@ -6,7 +6,7 @@ from urllib.parse import urlencode, urlsplit
 
 import pandas as pd
 
-from .core import ROOT, ApiProblem, digest, ratio, read_spec, shift_week, week_key
+from .core import ROOT, digest, ratio, read_spec, shift_week, week_key
 
 
 def rate(frame):
@@ -27,6 +27,8 @@ class Engine:
         self.store = store
         self.version = None
         self.roster_cache = {}
+        self.group_cache = {}
+        self.cluster_cache = {}
 
     def refresh(self):
         generation = self.store.generation
@@ -65,7 +67,7 @@ class Engine:
             text = re.sub(r"\s+", "", "".join(item.get("value", "") for item in content if item.get("type") == "text"))
             if len(text) >= 16:
                 self.template_keys.append((template["id"], text[:16], text[-16:]))
-        for index, row in self.frame.iterrows():
+        for index, row in self.frame[self.frame.line == "inspiration"].iterrows():
             if row.line == "inspiration":
                 label = self.rules["fallback"]
                 if row.prompt.startswith(self.rules["agent_prefix"]):
@@ -122,6 +124,8 @@ class Engine:
                 previous = row
             self.register_chain(chain)
         self.roster_cache.clear()
+        self.group_cache.clear()
+        self.cluster_cache.clear()
         self.version = generation
 
     def register_chain(self, indices):
@@ -133,10 +137,14 @@ class Engine:
 
     def group(self, line, week, enterprise=None):
         self.refresh()
-        mask = (self.frame.line == line) & (self.frame.week == week)
-        if enterprise is not None:
-            mask &= self.frame.enterprise_id == enterprise
-        return self.frame[mask]
+        key = (line, week, enterprise)
+        if key not in self.group_cache:
+            if enterprise is None:
+                self.group_cache[key] = self.frame[(self.frame.line == line) & (self.frame.week == week)]
+            else:
+                group = self.group(line, week)
+                self.group_cache[key] = group[group.enterprise_id == enterprise]
+        return self.group_cache[key]
 
     def coverage(self, line, week):
         rows = [row for row in self.coverage_rows if row["line"] == line and week_key(row["day"]) == week]
@@ -406,7 +414,8 @@ class Engine:
         if query.get("user") is not None:
             group = group[group.user_phone.map(lambda phone: digest(phone, 10) if phone else None) == query["user"]]
         if query.get("cluster") is not None:
-            raise ApiProblem(409, "milestone_unavailable", "按提示词簇筛选在 M2 提供")
+            from .analysis import cluster_indices
+            group = group[group.index.isin(cluster_indices(self, query["line"], query["cluster"]))]
         total = len(group)
         group = group.sort_values(["created_at", "file_order", "row_no"], ascending=[False, False, True])
         sample = query.get("sample")
@@ -436,7 +445,9 @@ class Engine:
     def chain_list(self, line, week, enterprise=None, min_length=3, downloaded=None):
         self.refresh()
         items = []
-        for key, indices in self.chains.items():
+        selected = self.group(line, week, enterprise)
+        for key in selected.chain_id.dropna().unique():
+            indices = self.chains[key]
             full = self.frame.loc[indices]
             group = full[(full.line == line) & (full.week == week)]
             if enterprise:

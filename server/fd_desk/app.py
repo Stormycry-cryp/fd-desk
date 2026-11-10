@@ -1,36 +1,52 @@
 import io
 import tempfile
+from datetime import date
 from pathlib import Path
 from threading import RLock
 from typing import Annotated
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Query, Request, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from openpyxl import Workbook
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
-from . import views
+from . import analysis, views
+from .automation import Automation
 from .core import LINES, ROOT, ApiProblem, Line, dump, now, validate_week
 from .engine import Engine
-from .ingest import import_file, scan
+from .ingest import IMPORT_SUFFIXES, import_file, scan
 from .media import Thumbnails
 from .models import (
     AlertKind,
     AlertPatch,
+    AnalysisCreate,
+    DraftCreate,
+    DraftPatch,
+    DraftPublish,
     EnterprisePatch,
+    FindingCreate,
+    FindingPatch,
     NextAction,
     NoteInput,
     Pattern,
     Pool,
+    PushConfirm,
+    PushCreate,
     ReportInput,
+    RerunCreate,
     Settings,
     SettingsPatch,
+    TouchCreate,
+    TouchPatch,
 )
+from .pushes import Pushes, public
+from .reruns import Reruns
 from .store import Store
+from .workflow import Workflow
 
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 
@@ -41,7 +57,17 @@ def create_app(directory=None):
     work.mkdir(exist_ok=True)
     tempfile.tempdir = str(work)
     engine = Engine(store)
+    workflow = Workflow(engine)
     thumbnails = Thumbnails(store.directory)
+    pushes = Pushes(workflow)
+    reruns = Reruns(engine, thumbnails)
+    automation = Automation(workflow)
+    with store.connection() as conn:
+        for table in ("pushes", "reruns", "automation_jobs"):
+            for item in store.items(table):
+                if item["state"] in ("queued", "running", "confirmed", "creating", "sharing"):
+                    item["state"] = "failed" if table == "automation_jobs" else "uncertain"
+                    store.save(table, item, conn)
     lock = RLock()
     app = FastAPI(title="FD 客户中台", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.store = store
@@ -69,12 +95,23 @@ def create_app(directory=None):
     @app.get("/api/meta")
     def get_meta():
         with store.lock, lock:
-            return views.meta(engine)
+            result = views.meta(engine)
+            with store.connection() as conn:
+                account = conn.execute("SELECT value FROM metadata WHERE key='fd_account'").fetchone()
+            if account:
+                import json
+                result["fdAccount"] = json.loads(account[0])
+            return result
 
     @app.get("/api/overview")
     def get_overview(line: Line, week: str):
         with store.lock, lock:
             return views.overview(engine, line, checked_week(week))
+
+    @app.get("/api/daily")
+    def get_daily(line: Line, from_: Annotated[date, Query(alias="from")], to: date, enterprise: str | None = None):
+        with store.lock, lock:
+            return views.daily(engine, line, from_, to, enterprise)
 
     @app.get("/api/enterprises")
     def get_enterprises(line: Line, week: str):
@@ -200,6 +237,171 @@ def create_app(directory=None):
                     return {**item, "dismissed": body.dismissed}
             raise ApiProblem(404, "not_found", "预警不存在")
 
+    @app.get("/api/analysis/inspiration")
+    def get_inspiration_analysis(week: str, excluded: bool = False):
+        with store.lock, lock:
+            return analysis.inspiration(engine, checked_week(week), excluded)
+
+    @app.get("/api/analysis/video")
+    def get_video_analysis(week: str, excluded: bool = False):
+        with store.lock, lock:
+            return analysis.video(engine, checked_week(week), excluded)
+
+    @app.get("/api/clusters")
+    def get_clusters(line: Line, week: str | None = None, enterprise: str | None = None, candidate: bool | None = None):
+        with store.lock, lock:
+            return analysis.clusters(engine, line, checked_week(week) if week else None, enterprise, candidate)
+
+    @app.get("/api/conversion")
+    def get_conversion(line: Line):
+        with store.lock, lock:
+            return analysis.conversion(engine, line)
+
+    @app.get("/api/cross-line")
+    def get_cross_line(week: str):
+        with store.lock, lock:
+            return analysis.cross_line(engine, checked_week(week))
+
+    @app.get("/api/findings")
+    def get_findings(line: Line | None = None):
+        return [item for item in store.items("findings") if line is None or item["line"] == line]
+
+    @app.post("/api/findings")
+    def post_finding(body: FindingCreate):
+        with store.lock, lock:
+            item = {**body.model_dump(), "id": uuid4().hex, "updatedAt": now()}
+            store.save("findings", item)
+            store.changed()
+            return item
+
+    @app.patch("/api/findings/{key}")
+    def patch_finding(key: str, body: FindingPatch):
+        with store.lock, lock:
+            item = {**store.item("findings", key), **body.model_dump(exclude_unset=True), "updatedAt": now()}
+            store.save("findings", item)
+            store.changed()
+            return item
+
+    @app.get("/api/drafts")
+    def get_drafts(line: Line):
+        with store.lock, lock:
+            return workflow.drafts(line)
+
+    @app.post("/api/drafts")
+    def post_draft(body: DraftCreate):
+        with store.lock, lock:
+            return workflow.create_draft(body)
+
+    @app.patch("/api/drafts/{key}")
+    def patch_draft(key: str, body: DraftPatch):
+        with store.lock, lock:
+            return workflow.patch_draft(key, body)
+
+    @app.post("/api/drafts/{key}/publish")
+    def publish_draft(key: str, body: DraftPublish):
+        with store.lock, lock:
+            return pushes.publish(key, body)
+
+    @app.post("/api/fd-account/check")
+    def check_fd_account():
+        result = pushes.client.check()
+        with store.connection() as conn:
+            conn.execute("INSERT OR REPLACE INTO metadata VALUES ('fd_account',?)", (dump(result),))
+        return result
+
+    @app.post("/api/drafts/{key}/pushes")
+    def preview_push(key: str, body: PushCreate):
+        with store.lock, lock:
+            return pushes.preview(key, body)
+
+    @app.get("/api/pushes/{key}")
+    def get_push(key: str):
+        with store.lock, lock:
+            return pushes.get(key)
+
+    @app.post("/api/pushes/{key}/confirm")
+    def confirm_push(key: str, body: PushConfirm, background: BackgroundTasks):
+        with store.lock, lock:
+            result, execute = pushes.confirm(key, body.receiverUserIds)
+        if execute:
+            background.add_task(pushes.execute, key)
+        return result
+
+    @app.post("/api/pushes/{key}/cancel")
+    def cancel_push(key: str):
+        with store.lock, lock:
+            return pushes.cancel(key)
+
+    @app.get("/api/reruns")
+    def get_reruns(enterprise: str | None = None):
+        return [public(item) for item in store.items("reruns") if enterprise is None or item["enterprise"]["id"] == enterprise]
+
+    @app.post("/api/reruns")
+    def post_rerun(body: RerunCreate):
+        with store.lock, lock:
+            return reruns.create(body)
+
+    @app.post("/api/reruns/{key}/confirm")
+    def confirm_rerun(key: str, background: BackgroundTasks):
+        with store.lock, lock:
+            result, execute = reruns.confirm(key)
+        if execute:
+            background.add_task(reruns.execute, key)
+        return result
+
+    @app.get("/api/reruns/{key}/media/{index}")
+    def rerun_media(key: str, index: int):
+        path, media_type = reruns.media(key, index)
+        return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+    @app.post("/api/automation/analysis")
+    def create_analysis(body: AnalysisCreate, background: BackgroundTasks):
+        with store.lock, lock:
+            result = automation.create(body)
+        background.add_task(automation.execute, result["id"])
+        return public(result)
+
+    @app.get("/api/automation/analysis/{key}")
+    def get_analysis(key: str):
+        return public(store.item("automation_jobs", key))
+
+    @app.get("/api/touches")
+    def get_touches(line: Line, week: str):
+        with store.lock, lock:
+            return workflow.board(line, checked_week(week))
+
+    @app.get("/api/touches/export")
+    def export_touches(line: Line, week: str, owner: str | None = None):
+        with store.lock, lock:
+            content = workflow.export_touches(line, checked_week(week), owner)
+        return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=touches_{line}_{week}.xlsx"})
+
+    @app.post("/api/touches/import")
+    def import_touches(file: Annotated[UploadFile, File()]):
+        content = file.file.read(MAX_UPLOAD_BYTES + 1)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise ApiProblem(413, "import_too_large", "表格超过 64 MB")
+        with store.lock, lock:
+            return workflow.import_touches(content)
+
+    @app.post("/api/touches")
+    def post_touch(body: TouchCreate):
+        with store.lock, lock:
+            return workflow.create_touch(body)
+
+    @app.patch("/api/touches/{key}")
+    def patch_touch(key: str, body: TouchPatch):
+        with store.lock, lock:
+            return workflow.patch_touch(key, body)
+
+    @app.delete("/api/touches/{key}", status_code=204)
+    def delete_touch(key: str):
+        with store.lock, store.connection() as conn:
+            if not conn.execute("DELETE FROM touches WHERE id=?", (key,)).rowcount:
+                raise ApiProblem(404, "not_found", "触达卡片不存在")
+        return Response(status_code=204)
+
     @app.get("/api/report")
     def get_report(week: str):
         with store.lock, lock:
@@ -223,8 +425,8 @@ def create_app(directory=None):
     @app.post("/api/imports")
     def post_import(file: Annotated[UploadFile, File()]):
         name = file.filename or ""
-        if Path(name).name != name or not name.endswith(".xlsx"):
-            raise ApiProblem(422, "invalid_import", "导入文件必须是 xlsx 文件")
+        if Path(name).name != name or not name.endswith(IMPORT_SUFFIXES):
+            raise ApiProblem(422, "invalid_import", "导入文件必须是 xlsx 或 csv.gz 文件")
         with tempfile.TemporaryDirectory(prefix="upload-", dir=work) as upload_directory:
             path = Path(upload_directory) / name
             total = 0

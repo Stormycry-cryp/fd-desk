@@ -6,25 +6,39 @@
 ~/.local/bin/uv run --directory server fd-desk serve
 ```
 
-使用 Python 3.12，依赖版本由 `server/uv.lock` 固定。启动时导入 `data/inbox/` 中尚未成功导入的 Excel，然后监听 `127.0.0.1:8765`。同一个进程提供 `/api/*` 和已有的 `web/dist/`；前端构建目录不存在时，接口仍可使用。
+使用 Python 3.12，依赖版本由 `server/uv.lock` 固定。启动时按文件修改时间导入 `data/inbox/` 中尚未成功导入的 `.xlsx` 或 UTF-8 BOM `.csv.gz`，然后监听 `127.0.0.1:8765`。同一个进程提供 `/api/*` 和已有的 `web/dist/`；前端构建目录不存在时，接口仍可使用。
 
 ```bash
 ~/.local/bin/uv run --directory server fd-desk selfcheck
 ~/.local/bin/uv run --directory server pytest
-~/.local/bin/uv run --directory server ruff check fd_desk tests
+~/.local/bin/uv run --directory server ruff check fd_desk tests ../collector
 ```
 
 自检在 `data/verification/` 中创建独立数据库，导入两份原始 Excel，从 SQLite 重新统计全部指标，逐项比较 `spec/golden.json`，浮点容差为 `1e-4`。随后重复导入每份文件，再次比较行数与全部汇总。成功后更新 `data/fixtures/` 中的真实接口 JSON 和两条产品线的 Excel 名单，临时数据库自动清理。
 
+测试只保留失败用例的暂存文件，下次运行清理本测试目录中的旧产物。真实输入、运行数据库和接口验证结果独立保存。
+
 真实数据测试覆盖名单和企业详情、完整周与同星期比较、任务筛选和分层抽样、任务链、失败后删除的记录、Excel 导出、设置持久化、默认排除与内部企业排除、手工内容保护、备注、预警、周报、重复文件与重叠日期导入，以及真实图片缩略图下载和缓存。
 
-M1 提供 `meta`、`overview`、`enterprises`、`tasks`、`chains`、`media/thumb`、`alerts`、`report`、`imports`、`settings` 接口及企业资料、下一步、备注、预警、周报和设置的写入接口。导入可使用 multipart 字段 `file`，或调用 `POST /api/imports/scan`。额外扫描命令为：
+后端提供名单、指标、企业档案、预警、任务、链、分析矩阵、提示词簇、结论记录、模板草稿、触达、分享、重跑、转化池、跨线使用和自动化分析接口。导入可使用 multipart 字段 `file`，或调用 `POST /api/imports/scan`。额外扫描命令为：
 
 ```bash
 ~/.local/bin/uv run --directory server fd-desk scan
 ```
 
-后端周报接口已通过真实 HTTP 验证。当前 `web/dist/` 尚未生成，静态页面托管和周报打印需要在前端构建完成后验收。
+初始运行数据使用已经核验的 `2026-09-10` 至 `2026-11-09` 在约、体验客户导出，共 302,537 条记录，包含灵感成款、全部视频场景和自由改款。源文件和校验报告通过 `data/inbox/` 的符号链接引用；完整数据分批读取，行主键跨批次连续计数。原有两份 Excel 和 `spec/golden.json` 用于独立自检，范围与初始运行数据分别记录。
+
+完整日期重读时，使用 fddata 合并文件及其同目录 `.csv.validation.json`：
+
+```bash
+~/.local/bin/uv run --directory server fd-desk import ../data/inbox/FD_在约体验_20260910-20261109.csv.gz --replace-range --scope ../collector/scope.json
+```
+
+覆盖导入检查文件 SHA-256、大小、完整日边界、行数、每天数量和场景；在一个事务内更新任务，并移除指定日期及场景中已经不在完整导出内的任务。企业类型、在约资料、手工内容、备注和设置保持持久化。没有匹配校验报告时拒绝覆盖。普通导入按行主键追加和更新。首次历史数据接入前的数据库保存在 `data/backups/before-history-20261110.db`，保留用于核对原始记录和恢复数据。
+
+后续按完整自然日使用 [fddata](/Users/chenyunzhe/.codex/skills/fddata/SKILL.md) 采集，执行配置和刷新要求见 [collector/README.md](../collector/README.md)。
+
+后端周报接口通过真实 HTTP 验证。服务托管前端现有的 `web/dist/`，打印交互由前端页面提供。
 
 任务默认每页 50 条，最多 200 条；`sample=n` 为每个抽样类别最多 n 条，同一个任务只出现一次。企业和成员在接口中保留完整手机号，企业 ID 为超管手机号 SHA-1 的前 10 位。服务关闭访问日志，错误响应不会包含原始数据或输入字段。
 
@@ -32,10 +46,26 @@ SQLite 使用 WAL，数据库位于 `data/fd-desk.db`。上传暂存和依赖库
 
 首次出现完整周时，灵感成款按任务数、视频按耗点，将占比至少 20% 的企业加入默认排除名单。用户修改名单后不再自动重新初始化。标记为内部的企业会加入两条线的名单。排除名单只影响 `comparableExcluded`，企业列表和预警保留全部企业。
 
-行为模式严格遵循 `spec/reference.py`：比较间隔严格小于一小时；缺失下载状态按未下载处理；没有用户信息的快速模式记录保留为 `none`，仍计入快速模式占比分母。覆盖日期采用导入文件声明的日期范围，因此没有生成记录的日期也能声明覆盖；文件名未声明范围时使用实际任务日期，并在导入记录中提示。行主键中的出现次数在每个文件内计算，使重复和重叠导出能够更新同一行。
+行为模式严格遵循 `spec/reference.py`：比较间隔严格小于一小时；缺失下载状态按未下载处理；没有用户信息的快速模式记录保留为 `none`，仍计入快速模式占比分母。覆盖日期采用 fddata 校验报告或导入文件声明的日期范围，因此没有生成记录的日期也能声明覆盖；文件名未声明范围且缺少校验报告时使用实际任务日期，并在导入记录中提示。行主键中的出现次数在每个文件内计算，使重复和重叠导出能够更新同一行。
 
 `Metric.value` 使用完整本周范围，其普通指标的 `comparable` 使用两周共同覆盖的星期。稳定使用企业数依赖完整周，只有两周都完整时才提供其比较数值。本周不完整时 `stable` 和 `levels` 返回 `null`。十二周历史中的无数据周使用零任务及空层级。
 
-原始导出未包含企业类型、在约状态、运营和售后，分别返回 `unknown` 或 `null`，可以通过企业接口补充。尚未撰写的小结和周报文字返回 `null`。未使用过的产品线详情、没有成员或模型信息的任务字段，以及没有视频首帧的 `poster` 返回 `null`。M3 的最近触达返回 `null`，触达记录返回空数组，周报触达统计为零。M1 尚未检查 FD 账号，因此 `fdAccount` 为未连接状态，用户名和检查时间为空。
+原始导出未包含企业类型、在约状态、运营和售后，分别返回 `unknown` 或 `null`，可以通过企业接口补充。尚未撰写的小结和周报文字返回 `null`。未使用过的产品线详情、没有成员或模型信息的任务字段，以及没有视频首帧的 `poster` 返回 `null`。最近触达、企业触达记录和周报统计使用实际保存的卡片；FD 账号状态由检查接口更新。
 
-M2 的分析矩阵和提示词簇、M3 的触达与模板推送、M4 的重跑和采集按 `CODEX.md` 逐个里程碑继续。`GET /api/tasks` 的 `cluster` 筛选在 M2 提供，M1 请求此筛选返回 `409 milestone_unavailable`。
+分析矩阵提供任务级下载率、企业级中位下载率、企业数、集中度、模式分布和失败样本。提示词簇先合并规范化后相同的文本，再按 SequenceMatcher 相似度合并；RapidFuzz 只筛选可能达到门槛的比较对象。Agent 不参与。成员缓存包含内容校验值，支持按周、企业、候选状态查询，以及 `GET /api/tasks?cluster=<id>` 查询真实任务。
+
+`GET /api/daily` 接收 `line`、`from`、`to` 和可选的 `enterprise`，返回每个自然日的真实任务数、耗点、企业数及下载率。`covered` 使用实际导入覆盖记录，供前端每天使用图表区分无任务日期和没有采集的日期。
+
+触达看板支持建议、周一/周三/周五安排、分配、状态和回复。新数据导入后的建议在读取看板时更新，接受或编辑过的卡片保持现有内容。Excel 按负责人导出，最后一列卡片 ID 隐藏。回填先校验全部行，再统一提交；未知 ID 计入 `skipped`，重复 ID、公式或无效日期会阻止本次写入。效果使用实际发送日期所在周及其下一完整周，并计算同周同池未触达企业的任务变化中位数。两个周均须完整；缺少模板 ID 时，`templateUsed` 保持 `null`。
+
+由簇建立的草稿默认限制为来源企业，改为通用范围需要手工确认。标题、提示词、话术、小结和下一步均保护手工内容。修改已发布草稿的内容后，需要发布对应的新内容。
+
+FD 分享读取 `FD_API_BASE_URL`、`FD_API_TOKEN` 环境变量或用户提供的 `data/private/fd.env`，凭据不进入数据库或日志。先调用账号检查接口，再通过 `POST /api/drafts/:id/publish` 提供真实 `sceneId`、`model` 和可选 `templateImg`，创建本人团队模板。FD 候选查询要求本人团队模板 ID，因此发布先于分享预览。预览通过实际企业成员查询候选，范围或归属无法确认时阻止选择。只有 `confirm` 才提交分享，遵守每日接收人数限制和稳定 `clientRequestId`；结果不明或进程中断后保留 `uncertain`，不会自动重复提交。结果接口只查询已有批次。
+
+`data/runtime.json` 保存当前会话模型、渠道、推理强度、Codex Home 和 CLI 路径。当前绑定 `gpt-6.1-sol / custom / ultra`，凭据仍由 Codex Home 解析。`POST /api/automation/analysis` 接收 `line` 和 `week`，通过本机 CLI 生成结构化小结、下一步、话术和模板草稿，完成字段和来源 ID 校验后以 `agent` 写入；任务查询接口返回真实执行状态。
+
+灵感成款重跑使用 LiteLLM Skill 的统一 runner 和已有 Key。建立重跑时核验准确模型 ID；确认时检查费用和预算，下载完整原始输入，按顺序提交一次参考图编辑。默认并发一项、自动重试零次。结果与账单依据保存在 `data/reruns/:id/`，图片通过本机接口提供。状态不明时保留 `uncertain`。
+
+货币字段为 `estimatedCost`、`spentCost`、`currency`，`provider` 为 `litellm`；FD 点数字段为 `null`。收费执行需要 `data/private/litellm-prices.json` 按准确模型 ID 提供 `maxCost`、`currency` 和价格依据 `evidence`，以覆盖当前调用参数的预估费用。设置中的 `rerunDailyBudget` 控制每日费用预留，`rerunCurrency` 指定货币，默认预算为零。没有费用依据时确认接口返回明确错误；实际扣费缺少账单依据时保持未知。
+
+转化池使用其他场景的真实记录，排除已经使用目标产品线、明确属于内部或过期的企业；跨线接口返回当周共同使用和仅用其中一条线的企业。FD 分享的端到端验收需要账号配置、外部分享权限和指定测试接收人。LiteLLM 收费验收需要价格依据、预算及一次重跑确认。

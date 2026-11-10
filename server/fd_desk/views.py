@@ -1,25 +1,52 @@
 from collections import Counter
+from datetime import timedelta
 
 from .core import LEVELS, LINES, POOLS, ApiProblem, digest, ratio, shift_week, week_key
 from .engine import main_value, rate, ref
 
 
 def meta(engine):
-    engine.refresh()
-    weeks = sorted({week_key(row["day"]) for row in engine.coverage_rows})
-    coverage = [engine.coverage(line, week) for week in weeks for line in LINES if engine.coverage(line, week)["days"]]
+    with engine.store.connection() as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM coverage ORDER BY day")]
+    settings = engine.store.settings()
+    weeks = sorted({week_key(row["day"]) for row in rows})
+    coverage = []
+    for week in weeks:
+        for line in LINES:
+            days = [row for row in rows if row["line"] == line and week_key(row["day"]) == week]
+            if days:
+                coverage.append({"line": line, "week": week, "days": [row["day"] for row in days], "complete": len(days) == 7, "refreshedAt": max(row["refreshed_at"] for row in days)})
     jobs = [job for job in engine.store.import_jobs() if job["state"] == "done"]
     return {
         "lines": list(LINES), "weeks": weeks, "coverage": coverage,
         "latestWeek": {line: max((item["week"] for item in coverage if item["line"] == line), default=None) for line in LINES},
-        "excluded": engine.settings["excluded"], "lastImportAt": jobs[0]["createdAt"] if jobs else None,
-        "siteBaseUrl": engine.settings["siteBaseUrl"],
+        "excluded": settings["excluded"], "lastImportAt": jobs[0]["createdAt"] if jobs else None,
+        "siteBaseUrl": settings["siteBaseUrl"],
         "fdAccount": {"ready": False, "userName": None, "externalShareAllowed": False, "checkedAt": None},
     }
 
 
+def daily(engine, line, start, end, enterprise=None):
+    engine.refresh()
+    if end < start:
+        raise ApiProblem(422, "invalid_date_range", "结束日期不能早于开始日期")
+    if enterprise:
+        engine.store.enterprise(enterprise)
+    group = engine.frame[(engine.frame.line == line) & engine.frame.day.between(start.isoformat(), end.isoformat())]
+    if enterprise:
+        group = group[group.enterprise_id == enterprise]
+    counts = {day: {"tasks": len(part), "points": int(part.points.sum()), "enterprises": int(part.enterprise_id.nunique()), "downloadRate": rate(part)} for day, part in group.groupby("day")}
+    covered = {row["day"] for row in engine.coverage_rows if row["line"] == line}
+    result = []
+    for offset in range((end - start).days + 1):
+        day = (start + timedelta(days=offset)).isoformat()
+        result.append({"date": day, "covered": day in covered, **counts.get(day, {"tasks": 0, "points": 0, "enterprises": 0, "downloadRate": None})})
+    return result
+
+
 def roster(engine, line, week):
-    rows = engine.base_roster(line, week)
+    from .workflow import Workflow
+    rows = Workflow(engine).roster(line, week)
     return {"line": line, "week": week, "rows": rows, "poolCounts": {pool: sum(row["pool"] == pool for row in rows) for pool in POOLS}}
 
 
@@ -135,6 +162,7 @@ def overview(engine, line, week):
 
 
 def enterprise_detail(engine, enterprise_id, week):
+    from .workflow import Workflow
     engine.refresh()
     enterprise = engine.store.enterprise(enterprise_id)
     all_tasks = engine.frame[(engine.frame.enterprise_id == enterprise_id) & (engine.frame.week <= week)]
@@ -176,11 +204,13 @@ def enterprise_detail(engine, enterprise_id, week):
         "enterprise": ref(enterprise), "adminPhone": enterprise["admin_phone"], "contract": enterprise["contract"],
         "owner": {"sales": enterprise["sales"], "afterSales": enterprise["after_sales"]},
         "firstSeenAt": all_tasks.created_at.min(), "lastActiveAt": all_tasks.created_at.max(),
-        "summary": engine.store.authored("summary", enterprise_id), "lines": details, "alerts": alerts, "touches": [], "notes": notes,
+        "summary": engine.store.authored("summary", enterprise_id), "lines": details, "alerts": alerts,
+        "touches": [item for item in Workflow(engine).touches(enterprise=enterprise_id) if item["week"] <= week], "notes": notes,
     }
 
 
 def report(engine, week):
+    from .workflow import Workflow
     lines = []
     for line in LINES:
         if engine.group(line, week).empty:
@@ -190,5 +220,7 @@ def report(engine, week):
             "top1Share": item["concentration"]["top1PointShare" if line == "video" else "top1TaskShare"],
             "falling": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": None} for mover in item["movers"]["falling"]],
             "rising": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": None} for mover in item["movers"]["rising"]]})
-    return {"week": week, "lines": lines, "touches": {"sent": 0, "replied": 0, "withOutcome": 0},
+    touches = Workflow(engine).touches(week=week)
+    return {"week": week, "lines": lines, "touches": {"sent": sum(bool(item["sentAt"]) for item in touches),
+        "replied": sum(item["status"] == "replied" for item in touches), "withOutcome": sum(item["outcome"] is not None for item in touches)},
         "done": engine.store.authored("report_done", week), "next": engine.store.authored("report_next", week)}

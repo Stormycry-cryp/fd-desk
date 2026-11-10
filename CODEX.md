@@ -17,10 +17,10 @@ fd-desk 后端（`server/`）和导出采集（`collector/`）。前端（`web/`
 - 只监听 `127.0.0.1:8765`。一个进程提供 `/api/*`，同时托管 `web/dist`（不存在时跳过），非 `/api` 路径回退到 `index.html`。
 - 客户数据只放在 `data/`（已被 `.gitignore` 忽略）：数据库、缓存、fixtures 都在里面。不要把手机号、企业名、图片链接写进代码、测试快照或日志。
 - 不保存 FD 后台的登录凭据。采集脚本使用本机已有的登录态，凭据来自环境变量或本机钥匙串，不进仓库。
-- 不调用大模型。小结、话术、模板草稿由外部自动化通过接口写入。
+- 需要大模型分析时，调用本机 Codex CLI，模型、渠道和推理强度沿用当前会话配置，保存在 `data/runtime.json`。生图使用用户的 LiteLLM Key 和对应 Skill runner。
 - 模板推送（M3）会给客户发通知：只能在 `POST /api/pushes/:id/confirm` 之后执行，一次确认只执行一次；遵守草稿的 `scope` 和 `pushDailyLimit`；超时或结果不明时置为 `uncertain`，不自动重试。流程和接口见 `PLAN.md` 6.11。
 - FD 账号的登录态只在调用 FD 接口时使用，不写入数据库和日志。
-- 重跑对比（M4）会消耗客户点数：先估算，`POST /api/reruns/:id/confirm` 之后才执行；遵守 `rerunDailyPointLimit`；结果不确定时置为 `uncertain`，不自动重试。
+- 重跑对比（M4）通过 LiteLLM 收费：先核验费用依据和每日货币预算，`POST /api/reruns/:id/confirm` 之后才执行；结果不确定时置为 `uncertain`，不自动重试。
 - 没有经过确认不要 push，也不要动 `zy-web` 仓库。
 
 ## 技术选型
@@ -46,7 +46,7 @@ fd-desk 后端（`server/`）和导出采集（`collector/`）。前端（`web/`
 - `GET /api/tasks?sample=n`：按 `SampleReason` 分层，每层最多取 n 条，并填 `sampleReason`；不带 `sample` 时按时间倒序分页，`limit` 默认 50、最大 200。
 - `GET /api/enterprises`：返回本条线截至该周出现过的全部企业，加上转化池候选。`poolCounts` 按全部行统计。
 - `RosterRow.spark` 和 `LineDetail.history`：截至该周的 12 周，没有数据的周 `tasks` 为 0、`level` 为 `null`。
-- 导入：`POST /api/imports` 接收 multipart 字段 `file`；`POST /api/imports/scan` 导入 `data/inbox` 中未导入过的文件。从文件名 `FD生成记录导出_YYYYMMDD-YYYYMMDD.xlsx` 读取覆盖起止日期；文件名不符合时用数据中最早和最晚的日期，并在 `ImportJob.error` 中提示。按行主键更新，同一文件导入两次行数不变。
+- 导入：`POST /api/imports` 接收 multipart 字段 `file`；`POST /api/imports/scan` 导入 `data/inbox` 中未导入过的 `.xlsx` 和 `.csv.gz`。从文件名 `FD生成记录导出_YYYYMMDD-YYYYMMDD.xlsx` 或 `FD_在约体验_YYYYMMDD-YYYYMMDD.csv.gz` 读取覆盖起止日期；fddata 校验报告优先声明覆盖日期并核对文件名。缺少日期声明时用数据中最早和最晚的日期，并在 `ImportJob.error` 中提示。按行主键更新，同一文件导入两次行数不变。完整范围覆盖通过 `fd-desk import <文件> --replace-range` 执行，必须核验同目录 fddata 合并报告，且保留企业手工资料和设置。
 - 首次启动时，若数据库为空，从 `spec/settings.default.json` 写入设置，从 `spec/seeds.json` 写入结论记录。结论 `rule` 为 `mismatch` 且 `verdict` 为 `confirmed` 时，驱动模型不匹配预警。
 - 规则产生的触达建议（`suggested: true`）在导入新数据后重新生成；已被接受或编辑过的卡片不受影响。
 
@@ -64,6 +64,8 @@ M1 抽查数字（`2026-11-02`，灵感成款）：任务 9077，企业 130，�
 
 ## 里程碑顺序
 
-按 `PLAN.md` 第 9 节：M1 名单与周对比 → M2 分析与模板候选 → M3 触达与效果 → M4 重跑、转化池、采集。每完成一个先停下来汇报，确认后再做下一个。
+初始运行数据使用 `2026-09-10` 至 `2026-11-09` 的在约、体验客户完整导出，共 302,537 条。后续采集使用 fddata，按完整自然日更新并刷新最近 14 天。配置和执行约定见 `collector/README.md`；原有两份 Excel 继续用于 golden 自检。
+
+按 `PLAN.md` 第 9 节实现 M1 名单与周对比、M2 分析与模板候选、M3 触达与效果、M4 重跑、转化池和每日采集，连续完成实现与验收。
 
 需要修改契约时，先改 `spec/contract.ts` 并写明原因，再改实现。

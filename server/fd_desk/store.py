@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS alert_state (
 );
 CREATE TABLE IF NOT EXISTS findings (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS touches (id TEXT PRIMARY KEY, line TEXT NOT NULL, week TEXT NOT NULL, enterprise_id TEXT NOT NULL REFERENCES enterprises(id), value TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS touches_line_week ON touches(line,week);
+CREATE TABLE IF NOT EXISTS pushes (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reruns (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS automation_jobs (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
@@ -49,7 +55,6 @@ class Store:
         self.directory = data_path(path)
         self.path = self.directory / "fd-desk.db"
         self.lock = RLock()
-        self.revision = 0
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
@@ -58,6 +63,15 @@ class Store:
                 for i, item in enumerate(read_spec("seeds.json")["findings"]):
                     value = {**item, "id": f"seed-{i + 1}", "rule": item.get("rule"), "updatedAt": now()}
                     conn.execute("INSERT INTO findings VALUES (?, ?)", (value["id"], dump(value)))
+            settings = json.loads(conn.execute("SELECT value FROM settings WHERE id=1").fetchone()[0])
+            if "rerunDailyBudget" not in settings:
+                settings.update(rerunDailyBudget=0, rerunCurrency="CNY")
+                conn.execute("UPDATE settings SET value=? WHERE id=1", (dump(settings),))
+            conn.execute("INSERT OR IGNORE INTO metadata VALUES ('analytics_revision','0')")
+            for table in ("tasks", "enterprises", "settings", "findings", "authored"):
+                for action in ("INSERT", "UPDATE", "DELETE"):
+                    conn.execute(f"CREATE TRIGGER IF NOT EXISTS analytics_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")
+        self.observer = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=False)
 
     @contextmanager
     def connection(self):
@@ -75,11 +89,12 @@ class Store:
             return json.loads(conn.execute("SELECT value FROM settings WHERE id=1").fetchone()[0])
 
     def changed(self):
-        self.revision += 1
+        with self.connection() as conn:
+            conn.execute("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'")
 
     @property
     def generation(self):
-        return self.revision, self.path.stat().st_mtime_ns
+        return self.observer.execute("SELECT CAST(value AS INTEGER) FROM metadata WHERE key='analytics_revision'").fetchone()[0]
 
     def enterprise(self, enterprise_id):
         with self.connection() as conn:
@@ -107,3 +122,27 @@ class Store:
     def import_jobs(self):
         with self.connection() as conn:
             return [json.loads(row[0]) for row in conn.execute("SELECT job FROM imports ORDER BY rowid DESC")]
+
+    def items(self, table):
+        if table not in {"drafts", "touches", "pushes", "reruns", "automation_jobs", "findings"}:
+            raise ValueError("业务表名称无效")
+        with self.connection() as conn:
+            return [json.loads(row[0]) for row in conn.execute(f"SELECT value FROM {table} ORDER BY rowid DESC")]
+
+    def item(self, table, key):
+        return next((item for item in self.items(table) if item["id"] == key), None) or self.missing()
+
+    def missing(self):
+        raise ApiProblem(404, "not_found", "记录不存在")
+
+    def save(self, table, value, conn=None):
+        if conn is None:
+            with self.connection() as connection:
+                self.save(table, value, connection)
+            return
+        if table == "touches":
+            conn.execute("INSERT INTO touches VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET line=excluded.line,week=excluded.week,enterprise_id=excluded.enterprise_id,value=excluded.value", (value["id"], value["line"], value["week"], value["enterprise"]["id"], dump(value)))
+        elif table in {"drafts", "pushes", "reruns", "automation_jobs", "findings"}:
+            conn.execute(f"INSERT INTO {table} VALUES (?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value", (value["id"], dump(value)))
+        else:
+            raise ValueError("业务表名称无效")

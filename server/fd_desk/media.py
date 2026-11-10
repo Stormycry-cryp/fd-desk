@@ -18,6 +18,30 @@ MAX_IMAGE_BYTES = 32 * 1024 * 1024
 MAX_CACHE_BYTES = 256 * 1024 * 1024
 
 
+def original_image(url):
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        raise ApiProblem(422, "invalid_media_url", "图片地址格式不符合要求") from None
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS or parsed.username or parsed.password or port not in (None, 443):
+        raise ApiProblem(422, "invalid_media_url", "图片地址必须使用允许域名的 HTTPS 地址")
+    with httpx.Client(timeout=45, follow_redirects=False, trust_env=False) as client, client.stream("GET", url) as response:
+        if response.status_code != 200:
+            raise ApiProblem(502, "media_unavailable", "图片服务没有返回原始图片")
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            content.extend(chunk)
+            if len(content) > MAX_IMAGE_BYTES:
+                raise ApiProblem(413, "media_too_large", "原始图片超过 32 MB")
+    with Image.open(io.BytesIO(content)) as image:
+        if image.width * image.height > 40_000_000 or image.format not in ("PNG", "JPEG", "WEBP"):
+            raise ApiProblem(422, "invalid_image", "原始图片格式或像素数量不符合要求")
+        extension = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}[image.format]
+        image.verify()
+    return bytes(content), extension
+
+
 class Thumbnails:
     def __init__(self, directory: Path):
         self.directory = directory / "cache/thumbs"

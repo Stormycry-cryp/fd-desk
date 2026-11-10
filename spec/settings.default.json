@@ -20,5 +20,7 @@
   "excluded": { "inspiration": [], "video": [] },
   "siteBaseUrl": "https://data.zhiyitech.cn/plus-fd",
   "rerunDailyPointLimit": 300,
+  "rerunDailyBudget": 0,
+  "rerunCurrency": "CNY",
   "pushDailyLimit": 20
 }

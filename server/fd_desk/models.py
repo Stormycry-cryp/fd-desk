@@ -143,6 +143,8 @@ class Settings(Input):
     siteBaseUrl: str = Field(pattern=r"^https?://[^\s]+$")
     rerunDailyPointLimit: int = Field(ge=0)
     pushDailyLimit: int = Field(ge=0)
+    rerunDailyBudget: float = Field(ge=0)
+    rerunCurrency: Literal["CNY", "USD"]
 
 
 class SettingsPatch(Input):
@@ -154,6 +156,8 @@ class SettingsPatch(Input):
     siteBaseUrl: str | None = None
     rerunDailyPointLimit: int | None = None
     pushDailyLimit: int | None = None
+    rerunDailyBudget: float | None = None
+    rerunCurrency: Literal["CNY", "USD"] | None = None
 
     @model_validator(mode="after")
     def validate_fields(self):
@@ -173,3 +177,135 @@ class ReportInput(Input):
         if any(getattr(self, field) is None for field in self.model_fields_set):
             raise ValueError("周报字段不能设置为 null")
         return self
+
+
+Slot = Literal["mon", "wed", "fri"]
+TouchStatus = Literal["draft", "assigned", "sent", "replied", "closed"]
+
+
+class Offer(Input):
+    kind: Literal["template", "comparison", "tip", "question"]
+    draftId: str | None = None
+    rerunId: str | None = None
+    link: str | None = None
+    text: str | None = None
+
+
+class TouchCreate(Input):
+    line: Line
+    week: str
+    slot: Slot
+    enterprise: str
+    goal: Pool
+    evidence: list[str] = Field(default_factory=list)
+    offer: Offer | None = None
+    draft: str = ""
+    owner: str | None = None
+    source: Source
+
+
+class TouchPatch(Input):
+    slot: Slot | None = None
+    goal: Pool | None = None
+    evidence: list[str] | None = None
+    offer: Offer | None = None
+    draft: str | None = None
+    owner: str | None = None
+    channel: str | None = None
+    status: TouchStatus | None = None
+    reply: str | None = None
+    suggested: bool | None = None
+    source: Source = "manual"
+
+    @model_validator(mode="after")
+    def validate_fields(self):
+        if any(getattr(self, name) is None for name in self.model_fields_set - {"owner", "channel", "reply"}):
+            raise ValueError("触达字段不能设置为 null")
+        return self
+
+
+class DraftCreate(Input):
+    line: Line
+    title: str = Field(min_length=1, max_length=200)
+    prompt: str = Field(min_length=1, max_length=50000)
+    slots: list[str]
+    scene: str | None = None
+    clusterId: str | None = None
+    source: Source
+
+
+class DraftPatch(Input):
+    title: str | None = Field(None, min_length=1, max_length=200)
+    prompt: str | None = Field(None, min_length=1, max_length=50000)
+    slots: list[str] | None = None
+    status: Literal["draft", "tested", "published", "pushed"] | None = None
+    fdTemplateId: int | None = Field(None, ge=1)
+    fdTemplateSource: Literal["official", "managed", "shared"] | None = None
+    scope: Literal["owner", "general"] | None = None
+    pushedTo: list[str] | None = None
+    source: Source = "manual"
+
+    @model_validator(mode="after")
+    def validate_fields(self):
+        if any(getattr(self, name) is None for name in self.model_fields_set - {"fdTemplateId", "fdTemplateSource"}):
+            raise ValueError("草稿字段不能设置为 null")
+        return self
+
+
+class FindingRule(Input):
+    kind: Literal["mismatch"]
+    intent: str
+    model: str
+
+
+class FindingCreate(Input):
+    line: Line
+    claim: str = Field(min_length=1)
+    verdict: Literal["confirmed", "refuted", "open"]
+    evidence: str
+    sample: str
+    caveat: str | None = None
+    rule: FindingRule | None = None
+
+
+class FindingPatch(Input):
+    line: Line | None = None
+    claim: str | None = Field(None, min_length=1)
+    verdict: Literal["confirmed", "refuted", "open"] | None = None
+    evidence: str | None = None
+    sample: str | None = None
+    caveat: str | None = None
+    rule: FindingRule | None = None
+
+    @model_validator(mode="after")
+    def validate_fields(self):
+        if any(getattr(self, name) is None for name in self.model_fields_set - {"caveat", "rule"}):
+            raise ValueError("结论字段不能设置为 null")
+        return self
+
+
+class PushCreate(Input):
+    enterprises: list[str] = Field(min_length=1, max_length=100)
+    touchId: str | None = None
+    notify: bool = True
+
+
+class PushConfirm(Input):
+    receiverUserIds: list[int] = Field(min_length=1, max_length=100)
+
+
+class RerunCreate(Input):
+    sourceRowKey: str
+    prompt: str = Field(min_length=1, max_length=50000)
+    model: str = Field(min_length=1)
+
+
+class AnalysisCreate(Input):
+    line: Line
+    week: str
+
+
+class DraftPublish(Input):
+    sceneId: int = Field(ge=1)
+    model: str = Field(min_length=1)
+    templateImg: str | None = None

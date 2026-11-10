@@ -584,6 +584,8 @@ export interface Settings {
   siteBaseUrl: string
   rerunDailyPointLimit: number
   pushDailyLimit: number
+  rerunDailyBudget: number
+  rerunCurrency: "CNY" | "USD"
 }
 
 export interface Rerun {
@@ -592,11 +594,23 @@ export interface Rerun {
   sourceTask: Task
   prompt: string
   model: string
-  estimatedPoints: number
+  estimatedPoints: number | null
   state: RerunState
   result: Media[]
   spentPoints: number | null
   createdAt: Timestamp
+  provider: "litellm"
+  estimatedCost: number | null
+  spentCost: number | null
+  currency: "CNY" | "USD" | null
+  error: ApiError | null
+}
+
+export interface CrossLineUsage {
+  week: WeekKey
+  both: EnterpriseRef[]
+  inspirationOnly: EnterpriseRef[]
+  videoOnly: EnterpriseRef[]
 }
 
 export interface ConversionCandidate {
@@ -623,6 +637,15 @@ export interface TaskQuery {
   sample?: number
   offset?: number
   limit?: number
+}
+
+export interface DailyPoint {
+  date: DateKey
+  covered: boolean
+  tasks: number
+  points: number
+  enterprises: number
+  downloadRate: number | null
 }
 
 export interface Api {
@@ -671,6 +694,7 @@ export interface Api {
     }>
     response: TemplateDraft
   }
+  "POST /api/drafts/:id/publish": { body: { sceneId: number; model: string; templateImg?: string }; response: TemplateDraft }
 
   "GET /api/touches": { query: { line: Line; week: WeekKey }; response: TouchBoard }
   "POST /api/touches": {
@@ -733,4 +757,8 @@ export interface Api {
   "POST /api/reruns/:id/confirm": { response: Rerun }
 
   "GET /api/conversion": { query: { line: Line }; response: ConversionCandidate[] }
+  "GET /api/cross-line": { query: { week: WeekKey }; response: CrossLineUsage }
+  "POST /api/automation/analysis": { body: { line: Line; week: WeekKey }; response: { id: Id; state: "queued" | "running" | "done" | "failed" } }
+  "GET /api/automation/analysis/:id": { response: { id: Id; state: "queued" | "running" | "done" | "failed"; error: ApiError | null } }
+  "GET /api/daily": { query: { line: Line; from: DateKey; to: DateKey; enterprise?: Id }; response: DailyPoint[] }
 }
