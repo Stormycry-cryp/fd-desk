@@ -1,0 +1,24 @@
+{
+  "thresholds": {
+    "inspiration": { "heavy": { "tasks": 100, "days": 4 }, "medium": { "tasks": 20, "days": 3 }, "moverBase": 50 },
+    "video": { "heavy": { "tasks": 20, "days": 3 }, "medium": { "tasks": 5, "days": 2 }, "moverBase": 10 }
+  },
+  "alerts": {
+    "stuck": { "minTasks": 20, "stuckShare": 0.3, "downloadRate": 0.25 },
+    "coldStart": { "minTasks": 3 },
+    "mismatch": { "minTasks": 8 },
+    "waste": { "minPoints": 1000, "downloadRate": 0.35 },
+    "failures": { "minCount": 3 },
+    "reuse": { "minUses": 20 }
+  },
+  "pools": {
+    "help": { "stuckShare": 0.25, "downloadRate": 0.35 },
+    "recall": { "minPeakTasks": 20 },
+    "unreliable": { "minTasks": 30, "downloadRate": 0.05 }
+  },
+  "clusters": { "similarity": 0.85, "candidateMinUses": 5 },
+  "excluded": { "inspiration": [], "video": [] },
+  "siteBaseUrl": "https://data.zhiyitech.cn/plus-fd",
+  "rerunDailyPointLimit": 300,
+  "pushDailyLimit": 20
+}

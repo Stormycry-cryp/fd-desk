@@ -1,0 +1,77 @@
+{
+  "findings": [
+    {
+      "line": "inspiration",
+      "claim": "灵感成款的周增长主要来自最大的一家客户",
+      "verdict": "confirmed",
+      "evidence": "同星期（周四到周日）对比，任务数 4007→5041；去掉最大客户是 3647→3433，企业数 107→105。",
+      "sample": "两周，10/29–11/01 对 11/05–11/08",
+      "caveat": "只有两周数据"
+    },
+    {
+      "line": "inspiration",
+      "claim": "连续任务包含两种相反的行为：批量生产和卡住",
+      "verdict": "confirmed",
+      "evidence": "11/02 当周快速模式任务中，批量占 34.7%、下载率 75.8%；重试加微调占 15.9%、下载率 38.0%。",
+      "sample": "8453 个快速模式任务",
+      "caveat": "下载率是满意度的近似"
+    },
+    {
+      "line": "inspiration",
+      "claim": "卡住的客户更容易流失",
+      "verdict": "refuted",
+      "evidence": "前一周四天任务不少于 10 个的 53 家企业里，下载率高于 60% 的 22 家只有 50% 保住一半以上用量；下载率低于 35% 的 13 家有 69% 保住。",
+      "sample": "53 家企业，两周",
+      "caveat": "推测是按批次干活，做完就停；需要更早的数据验证"
+    },
+    {
+      "line": "inspiration",
+      "claim": "印花面料类任务用 nano_banana_pro 的下载率明显低于另外两个主力模型",
+      "verdict": "confirmed",
+      "evidence": "企业级平均下载率：nano_banana_pro 22%（13 家），gpt-image-2.5-flare 50%（9 家），gemini-nano-banana-2.1 41%（8 家）。去掉各自最大的两家后任务级为 19%、53%、43%。",
+      "sample": "11/02 当周，每家至少 8 个任务",
+      "caveat": "任务类型是关键词分类",
+      "rule": { "kind": "mismatch", "intent": "印花面料", "model": "nano_banana_pro" }
+    },
+    {
+      "line": "inspiration",
+      "claim": "换色类任务不同模型之间下载率有明显差距",
+      "verdict": "refuted",
+      "evidence": "任务级 nano_banana_pro 57% 对 gpt-image-2.5-flare 34%，但去掉各自最大的两家后是 47% 对 50%；企业级中位数都是 45%（平均数 44% 对 39%）。",
+      "sample": "11/02 当周，不含最大客户",
+      "caveat": "差距来自个别大客户"
+    },
+    {
+      "line": "inspiration",
+      "claim": "官方模板的使用集中在少数几个",
+      "verdict": "confirmed",
+      "evidence": "快速模式任务中 10.1% 命中官方模板文本（854 / 8453）；50 个模板用到 16 个，前 3 个占命中的 91.5%。",
+      "sample": "11/02 当周",
+      "caveat": "按提示词文本匹配，修改过模板文字的会漏计"
+    },
+    {
+      "line": "inspiration",
+      "claim": "Agent 模式的使用集中在一个账号",
+      "verdict": "confirmed",
+      "evidence": "624 行来自 13 家企业，其中一个账号占 537 行。",
+      "sample": "11/02 当周",
+      "caveat": "一次 Agent 提交会产生多行"
+    },
+    {
+      "line": "video",
+      "claim": "视频耗点集中在一家客户，且超过一半的耗点没有被下载",
+      "verdict": "confirmed",
+      "evidence": "最大客户占耗点 62.3%。全部耗点 60016，未下载的任务占 31861（53.1%）。去掉最大客户，同星期对比耗点 15192→9951，企业数 29→23。",
+      "sample": "11/02 当周 881 个任务",
+      "caveat": "下载率是满意度的近似"
+    },
+    {
+      "line": "video",
+      "claim": "素材不合规导致的失败，用户看到的是通用报错",
+      "verdict": "open",
+      "evidence": "68 次失败里 12 次属于素材不合规（参考视频帧率需在 24 至 60 之间、时长不足），用户可见文案全部是“处理失败，请稍后重试”。另有 29 次是上游异常，主要是第三方素材处理失败。",
+      "sample": "11/02 当周，素材不合规涉及 2 家企业",
+      "caveat": "11/05 上线了 O4 素材拦截，需要用之后的数据确认是否已解决"
+    }
+  ]
+}
