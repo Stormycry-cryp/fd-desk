@@ -76,7 +76,6 @@ def free_design(engine, enterprises, line, week):
         tasks = current.get("tasks", 0)
         previous = history.get(shift_week(week, -1), {}).get("tasks", 0)
         older = any(key < shift_week(week, -1) for key in history)
-        movement = "lost" if not tasks and not previous else "silent" if not tasks else "drop" if previous and tasks < previous * .5 else "surge" if previous and tasks > previous * 2 else "returned" if not previous and older else "new" if not any(key < week for key in history) else "steady"
         spark = []
         for key in weeks:
             point = history.get(key, {})
@@ -90,6 +89,9 @@ def free_design(engine, enterprises, line, week):
                 start = date.fromisoformat(key)
                 return sum(days.get((enterprise, (start + timedelta(days=offset)).isoformat()), 0) for offset in comparable_days)
             comparable = {"current": count(week), "previous": count(shift_week(week, -1))}
+        declining = comparable is not None and comparable["previous"] > 0 and comparable["current"] < comparable["previous"] * .5
+        growing = comparable is not None and comparable["previous"] > 0 and comparable["current"] > comparable["previous"] * 2
+        movement = "lost" if not tasks and not previous else "silent" if not tasks else "drop" if declining else "surge" if growing else "returned" if not previous and older else "new" if not any(key < week for key in history) else "steady"
         top = intent_counts[enterprise].most_common(1)
         intent = top[0][0] if top else None
         last = max((point["last_active"] for point in history.values()), default=None)
