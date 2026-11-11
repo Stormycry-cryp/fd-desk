@@ -12,7 +12,7 @@
   - `good`：第一步就下载了。
 - **单条结果**在现有 `downloaded | not_downloaded | failed` 之外加一个 `deleted`（`status == "deleted"`）。deleted 算 bad 的一种。
 - **评价作用在 case 上**：给链打分，链上每一步都继承这个评价；需要时可以给某一步单独打分，覆盖继承来的。
-- **AI 分析**只在用户主动点击后执行，调用本机 Codex CLI。发起前返回 Case 和图片数量，费用金额保留为空。
+- **AI 分析**只在用户主动点击后执行，调用本机 Codex CLI。发起前返回 Case、图片数量和预计金额，按当前渠道配置的模型单价计算。
 - **导出**为 xlsx，图片放链接，不嵌图。
 - **默认排序**：bad 优先，然后按时间倒序。要支持分页，一周灵感成款大约 9,000 条，合成链大约 5,000 个。
 
@@ -306,7 +306,7 @@ export interface CaseAnalysis {
 
 接口：
 
-- `POST /api/cases/analyses/estimate`：请求体 `{ items }`，返回 `{ cases: number; images: number; estimated: number | null; currency: string }`。金额为 null，未知币种为空字符串，直接执行分析。
+- `POST /api/cases/analyses/estimate`：请求体 `{ items }`，返回 `{ cases: number; images: number; estimated: number; currency: string }`。模型单价和渠道倍率读取本机 CC Switch 价格数据库，币种为 USD；预计用量参考同模型已完成的真实 Case 分析，按 Case 数量、图片数量和文本规模估算。完成金额按本次 CLI 的实际输入、缓存读取、缓存写入和输出用量计算，并使用创建时保存的单价。
 - `POST /api/cases/analyses`：请求体 `{ line; items; question?: string }`，最多 40 个 case。
 - `GET /api/cases/analyses?line=`
 - `GET /api/cases/analyses/:id`
@@ -385,7 +385,7 @@ export interface CaseIssue {
   "GET /api/cases/batches": { query: { line: Line }; response: CaseBatch[] }
   "GET /api/cases/batches/:id": { response: CaseBatch & { rows: CaseRow[] } }
   "DELETE /api/cases/batches/:id": { response: null }
-  "POST /api/cases/analyses/estimate": { body: { items: { id: Id; unit: CaseUnit }[] }; response: { cases: number; images: number; estimated: number | null; currency: string } }
+  "POST /api/cases/analyses/estimate": { body: { items: { id: Id; unit: CaseUnit }[] }; response: { cases: number; images: number; estimated: number; currency: string } }
   "POST /api/cases/analyses": { body: { line: Line; items: { id: Id; unit: CaseUnit }[]; question?: string }; response: CaseAnalysis }
   "GET /api/cases/analyses": { query: { line: Line }; response: CaseAnalysis[] }
   "GET /api/cases/analyses/:id": { response: CaseAnalysis }
@@ -420,8 +420,8 @@ export interface CaseIssue {
 - **兜底**：后端接口缺失时，页面改用 `/api/chains` 加 Agent 任务在本地算出 case，评价、收藏和抽样先存在本机。等接口恢复后会自动同步上去。目前后端接口都已在线，实测走的是后端。
 - **企业抽屉**：「记录」标签页改为跳转到记录页，并按该企业筛选。原来的 `Records.tsx` 已删除。
 
-实测后需要后端补的：
+后端补充约定：
 
-1. `POST /api/cases/analyses/estimate` 返回的 `estimated` 是 null、`currency` 是空字符串，前端只能显示图片张数。请按实际用的模型单价算出金额。
-2. `GET /api/cases/tags` 返回的预置标签 `lines: []`。前端已经按「空数组表示两条线」处理了，但视频组的三个标签应该是 `["video"]`，现在灵感成款里也能看到。
-3. 批次的 `filters` 把列表的分页参数（`offset`、`limit`、`sort`）也存进去了，请只保留筛选条件。
+1. 费用预估返回具体金额和币种，使用当前模型单价与渠道倍率；完成后保存本次 CLI 用量计算出的金额。
+2. 三个视频预置标签的 `lines` 固定为 `["video"]`，灵感成款标签接口排除这三个标签；服务启动时修复已有的适用范围，保留标签的名称、排序和归档状态。
+3. 批次 `filters` 只保存查询范围和筛选条件，排除 `sort`、`offset`、`limit`；服务启动时同步清理已有批次的这三个字段，保留抽样结果和评价。

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -6,6 +7,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from pydantic import Field
 
+from .case_costs import CaseCosts
 from .cases import CaseRef, Rating, Strict
 from .core import ApiProblem, Line, now
 from .engine import ref
@@ -49,6 +51,7 @@ PUBLIC = ("id", "line", "items", "question", "state", "headline", "clusters", "p
 class CaseAnalyses:
     def __init__(self, context):
         self.context, self.store, self.repo, self.cases = context, context.store, context.repo, context.cases
+        self.costs = CaseCosts(self.store.directory)
         context.jobs.register("cases.analyze", self.analyze)
 
     def inputs(self, facts, question):
@@ -76,7 +79,8 @@ class CaseAnalyses:
         facts = self.cases.selected(items)
         inputs = self.inputs(facts, None)
         images = self.images(inputs, Path("case-images"))
-        return {"cases": len(facts), "images": len(images), "estimated": None, "currency": ""}
+        cost, _ = self.costs.quote({**inputs, "images": images})
+        return {"cases": len(facts), "images": len(images), "estimated": cost["estimated"], "currency": cost["currency"]}
 
     def create(self, body):
         facts = self.cases.selected(body.items, body.line)
@@ -84,9 +88,10 @@ class CaseAnalyses:
         key = uuid4().hex
         directory = (self.store.directory / "analysis" / key / "case-images").resolve()
         inputs["images"] = self.images(inputs, directory)
+        cost, price = self.costs.quote(inputs)
         item = {"id": key, "line": body.line, "items": [value.model_dump() for value in body.items], "question": body.question,
                 "state": "queued", "headline": "", "clusters": [], "perCase": [], "suggestions": [],
-                "cost": {"estimated": None, "spent": None, "currency": ""}, "error": None,
+                "cost": cost, "price": price, "error": None,
                 "createdAt": now(), "finishedAt": None, "input": inputs}
         self.context.jobs.submit("case_analysis", "cases.analyze", {"analysis": key}, job_id=key, objects=(("case_analysis", item),))
         return {field: item[field] for field in PUBLIC}
@@ -145,8 +150,10 @@ class CaseAnalyses:
                     self.context.jobs.progress(job_id, index + 1, len(inputs["images"]) + 1)
             result = self.context.model.run("case_analysis", inputs, Result, job_id)
             validated = self.validate(result, inputs)
+            usage = json.loads((directory / "usage.json").read_text())
+            cost = {**item["cost"], "spent": float(round(self.costs.amount(usage, item["price"]), 8))}
             with self.store.lock:
-                item.update(**validated, state="done", finishedAt=now())
+                item.update(**validated, cost=cost, state="done", finishedAt=now())
                 self.repo.save("case_analysis", item)
             return {"analysisId": job_id}
         finally:

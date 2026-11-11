@@ -241,7 +241,7 @@ export interface ApiCases {
   "GET /api/cases/batches": { query: { line: Line }; response: CaseBatch[] }
   "GET /api/cases/batches/:id": { response: CaseBatch & { rows: CaseRow[] } }
   "DELETE /api/cases/batches/:id": { response: null }
-  "POST /api/cases/analyses/estimate": { body: { items: CaseRef[] }; response: { cases: number; images: number; estimated: number | null; currency: string } }
+  "POST /api/cases/analyses/estimate": { body: { items: CaseRef[] }; response: { cases: number; images: number; estimated: number; currency: string } }
   "POST /api/cases/analyses": { body: { line: Line; items: CaseRef[]; question?: string }; response: CaseAnalysis }
   "GET /api/cases/analyses": { query: { line: Line }; response: CaseAnalysis[] }
   "GET /api/cases/analyses/:id": { response: CaseAnalysis }

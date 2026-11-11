@@ -21,6 +21,7 @@ from .engine import ref
 Unit = Literal["chain", "task"]
 Rating = Literal["good", "ok", "bad"]
 Status = Literal["todo", "seen", "done"]
+BATCH_PRESENTATION = {"sort", "offset", "limit"}
 
 PRESETS = (
     ("instruction_ignored", "没听懂", "指令没执行", [], "bad"),
@@ -177,6 +178,9 @@ class Cases:
                     conn.execute(f"CREATE TRIGGER IF NOT EXISTS analytics_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")
             for order, (key, group, label, lines, tone) in enumerate(PRESETS):
                 conn.execute("INSERT OR IGNORE INTO case_tags VALUES (?,?,?,?,?,?,0)", (key, group, label, dump(lines), tone, order))
+                if lines == ["video"]:
+                    conn.execute("UPDATE case_tags SET lines_json=? WHERE id=? AND lines_json<>?", (dump(lines), key, dump(lines)))
+            conn.execute("UPDATE rework_objects SET value=json_remove(value,'$.filters.sort','$.filters.offset','$.filters.limit') WHERE kind='case_batch' AND (json_type(value,'$.filters.sort') IS NOT NULL OR json_type(value,'$.filters.offset') IS NOT NULL OR json_type(value,'$.filters.limit') IS NOT NULL)")
 
     def refresh(self):
         self.engine.refresh()
@@ -387,6 +391,8 @@ class Cases:
             item.update(changes)
         else:
             item = {**body.model_dump(), "id": uuid4().hex, "order": max((tag["order"] for tag in self.tags(all_=True)), default=-1) + 1, "archived": False}
+        if any(key == preset[0] and preset[3] == ["video"] for preset in PRESETS) and item["lines"] != ["video"]:
+            raise ApiProblem(422, "invalid_tag_line", "视频预置标签仅适用于视频业务线")
         with self.store.connection() as conn:
             conn.execute("INSERT INTO case_tags VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET group_name=excluded.group_name,label=excluded.label,lines_json=excluded.lines_json,tone=excluded.tone,position=excluded.position,archived=excluded.archived", (item["id"], item["group"], item["label"], dump(list(dict.fromkeys(item["lines"]))), item["tone"], item["order"], item["archived"]))
         return item
@@ -481,7 +487,8 @@ class Cases:
         return [self.batch(item["id"]) for item in items]
 
     def sample(self, body):
-        query = checked_query({**body.filters, "line": body.line, "from": body.from_, "to": body.to, "unit": body.unit, "offset": 0})
+        filters = {key: value for key, value in body.filters.items() if key not in BATCH_PRESENTATION}
+        query = checked_query({**filters, "line": body.line, "from": body.from_, "to": body.to, "unit": body.unit})
         candidates = self.query(query)[0]
         with self.store.connection() as conn:
             sampled = {row[0] for row in conn.execute("SELECT row_key FROM case_sample_history")}
@@ -533,7 +540,7 @@ class Cases:
                     picked.append(found)
                     enterprise_counts[found.enterprise] += 1
         key, stamp = uuid4().hex, now()
-        filters = {key: str(value).lower() if isinstance(value, bool) else str(value) for key, value in query.model_dump(by_alias=True, exclude_none=True).items()}
+        filters = {key: str(value).lower() if isinstance(value, bool) else str(value) for key, value in query.model_dump(by_alias=True, exclude_none=True, exclude_defaults=True).items() if key not in BATCH_PRESENTATION}
         item = {"id": key, "line": body.line, "name": body.name or f"{body.from_} 抽样", "strategy": body.strategy, "filters": filters,
                 "items": [{"id": fact.id, "unit": fact.unit} for fact in picked], "reviewed": 0, "createdAt": stamp}
         with self.store.connection() as conn:

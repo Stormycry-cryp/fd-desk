@@ -46,6 +46,8 @@ SQLite 默认位于 `data/fd-desk.db`，采用 WAL；上传暂存和工作文件
 
 模型分析使用 `data/runtime.json` 指定的本机 Codex CLI、Codex Home、模型、渠道和推理强度；当前为 `gpt-6.1-sol`、`ultra`、`custom`。任务输入、结构化输出和进程记录保存在 `data/analysis/`。问答使用独立 pi 进程，通过知衣网关调用 `gpt-6.1-sol`、`high`，配置在 `data/private/zhiyi-gateway.json`，会话存储在 `data/ask/`。试验台调用 LiteLLM Skill runner，固定使用内网 `http://litellm-gray.sometimes.cn`，凭据读取本机 Skill 外的配置，估算费用和 FD 映射来自 `data/private/litellm-prices.json`。
 
+Case 文本分析的 `caseAnalysisPricing.database` 指向本机 CC Switch 数据库，只读查询当前模型价格和当前 Codex 渠道倍率。`caseAnalysisPricing.historyDirectories` 指定已完成的真实 Case 分析目录，相对路径以运行数据目录为基准；每项保留 `input.json`、`process.json`、`usage.json` 和 `answer.json`。预估使用最近同模型记录，按 Case 数量、图片数量和文本规模调整用量并计算 USD 金额；缓存费用由本次实际用量计算，单价在创建分析时保存。当前参考用量保存在 `data/verification/cases-live/analysis`，后续已完成分析也自动参与预估。
+
 所有应用模型请求通过 `data/service/model-capacity.sqlite3` 共用并发额度：总额度五项，为当前主会话预留一项，应用最多四项；后台分析、采集与图片生成合计最多三项。问答可以使用剩余名额，后台排队不会占用问答空余容量。名额绑定实际进程及启动时间，进程结束后自动释放；排队问答可以取消。
 
 转化页使用独立的自由改款证据：本周任务、耗点、使用天数、成员、下载率、失败、累计任务、近四个完整周任务、同星期对比及十二周走势。主要任务依据 `spec/intents.json` 的提示词关键词归类，建议由代码根据真实使用生成。数据按事实版本缓存，SQLite 部分索引覆盖自由改款计数与下载统计；目标功能的原有任务字段保持原有含义。问答可结合这些证据继续分析转化机会。
@@ -68,7 +70,7 @@ SQLite 默认位于 `data/fd-desk.db`，采用 WAL；上传暂存和工作文件
 - R6 导出：`GET /api/export/:kind` 返回单个 XLSX；`POST /api/export/bundle` 接收 `items`（每项含 `kind` 和字符串参数 `params`），返回任务；完成后从 `GET /api/export/download/:id` 下载 ZIP。
 - 生成记录：`GET /api/records` 按企业、产品线、日期、结果、任务类型、模式、模型、成员、行为、批注和关键字查询；`POST /api/records/sample` 执行有种子的分层抽样；`GET/POST /api/records/analyses` 管理选中记录的模型分析，单项支持查看和删除；`GET /api/records/export` 导出所选记录。`GET /api/trends` 查询多周趋势。类型已并入 `spec/contract.ts`，`contract.records.ts` 保留重导出。
 - Case：`GET /api/cases` 跨企业查询修改链或单条，支持时间、企业、结局、结果、意图、修改方式、模型、模式、企业层级与动向、耗时异常、步数、评价、问题标签、处理状态、收藏夹、批注和关键词。灵感成款默认修改链，视频默认单条。`GET /api/cases/:id?unit=` 返回完整步骤及批注；`/api/cases/reviews` 批量保存或清除手工评价，单条覆盖链继承；`/tags` 管理十六个预置标签和自定义标签，支持归档；`/collections` 管理收藏夹；`/batches` 执行四种抽样并保存批次。抽样按原始记录保存历史，删除批次保留抽样历史和评价。
-- Case 分析和问题看板：`POST /api/cases/analyses/estimate` 返回 Case 和图片数量，金额为空；`POST /api/cases/analyses` 使用当前本机 Codex CLI 配置读取真实图片、全部提示词和步骤，返回按问题分类的 Case 证据与待确认初判，保留手工评价。主动分析使用持久任务和共享并发，流水线与既有分析的日任务额度独立计算。`GET /api/cases/issues` 仅统计明确保存的手工标签，提供最近八周变化、影响客户、样本和关联数量。跟进附件支持 Case；模板创建支持 `caseIds` 参考，撰写输入包含完整步骤、评价、批注与本地输入和输出图片，同源图片只保存一次，任务结束后清理图片；试验台候选支持 `caseIds`，取各 Case 第一步。
+- Case 分析和问题看板：`POST /api/cases/analyses/estimate` 返回 Case、图片数量和预计 USD 金额；`POST /api/cases/analyses` 使用当前本机 Codex CLI 配置读取真实图片、全部提示词和步骤，返回按问题分类的 Case 证据与待确认初判，保留手工评价，并按 CLI 实际 token 用量计算完成金额。主动分析使用持久任务和共享并发，流水线与既有分析的日任务额度独立计算。`GET /api/cases/issues` 仅统计明确保存的手工标签，提供最近八周变化、影响客户、样本和关联数量。跟进附件支持 Case；模板创建支持 `caseIds` 参考，撰写输入包含完整步骤、评价、批注与本地输入和输出图片，同源图片只保存一次，任务结束后清理图片；试验台候选支持 `caseIds`，取各 Case 第一步。
 
 ## 导出列
 

@@ -15,7 +15,8 @@ from PIL import Image
 
 from fd_desk.app import create_app
 from fd_desk.case_analysis import Result
-from fd_desk.cases import BatchInput, CaseQuery
+from fd_desk.case_costs import CaseCosts
+from fd_desk.cases import BatchInput, CaseQuery, Cases
 from fd_desk.core import ROOT, digest
 from fd_desk.record_analysis import cleanup_images
 from fd_desk.templates import Create as TemplateCreate
@@ -26,6 +27,10 @@ def real_cases(tmp_path):
     previous_tempdir = tempfile.tempdir
     app = create_app(tmp_path)
     context = app.state.rework
+    configuration = json.loads((ROOT / "data/runtime.json").read_text())
+    pricing = configuration["caseAnalysisPricing"]
+    pricing["historyDirectories"] = [str((ROOT / "data" / value).resolve()) for value in pricing["historyDirectories"]]
+    (tmp_path / "runtime.json").write_text(json.dumps(configuration))
     with sqlite3.connect(f"{(ROOT / 'data/fd-desk.db').as_uri()}?mode=ro", uri=True) as source, context.store.connection() as copied:
         copied.executemany("INSERT INTO enterprises VALUES (?,?,?,?,?,?,?,?)", source.execute("SELECT * FROM enterprises"))
         copied.executemany("INSERT INTO tasks(row_key,enterprise_id,line,week,created_at,file_order,row_no,payload) VALUES (?,?,?,?,?,?,?,?)", source.execute("SELECT row_key,enterprise_id,line,week,created_at,file_order,row_no,payload FROM tasks WHERE line IN ('inspiration','video') AND created_at>='2026-11-01' AND created_at<'2026-11-10'"))
@@ -86,7 +91,14 @@ def test_manual_review_inheritance_tags_and_annotations(real_cases):
     fact = chain(context)
     selection = {"items": [{"id": fact.id, "unit": "chain"}]}
     tag = client.get("/api/cases/tags", params={"line": "inspiration"}).json()[0]
-    assert len(client.get("/api/cases/tags", params={"line": "video"}).json()) == 16
+    inspiration = client.get("/api/cases/tags", params={"line": "inspiration"}).json()
+    video = client.get("/api/cases/tags", params={"line": "video"}).json()
+    assert len(inspiration) == 13 and len(video) == 16
+    video_tags = {value["id"] for value in video if value["lines"] == ["video"]}
+    assert video_tags == {"motion_stiff", "video_inconsistent", "video_pacing"}
+    assert not video_tags & {value["id"] for value in inspiration}
+    assert client.patch("/api/cases/tags/motion_stiff", json={"lines": []}).status_code == 422
+    assert client.put("/api/cases/reviews", json={**selection, "addTags": ["motion_stiff"]}).status_code == 422
     response = client.put("/api/cases/reviews", json={**selection, "rating": "bad", "addTags": [tag["id"]], "status": "seen"})
     assert response.json() == {"updated": 1}
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": "chain"}).json()
@@ -120,10 +132,13 @@ def test_manual_review_inheritance_tags_and_annotations(real_cases):
 @pytest.mark.parametrize("strategy", ["stratified", "problems", "per_enterprise", "per_intent"])
 def test_sampling_collections_and_exports(real_cases, strategy):
     _context, client = real_cases
-    body = {"line": "inspiration", "from": "2026-11-02", "to": "2026-11-08", "unit": "chain", "filters": {}, "strategy": strategy, "size": 20, "perGroup": 3, "seed": 817}
+    body = {"line": "inspiration", "from": "2026-11-02", "to": "2026-11-08", "unit": "chain", "filters": {"sort": "newest", "offset": "999", "limit": "1"}, "strategy": strategy, "size": 20, "perGroup": 3, "seed": 817}
     first = client.post("/api/cases/batches", json=body)
     assert first.status_code == 200
     first = first.json()
+    assert not {"sort", "offset", "limit"} & first["filters"].keys()
+    assert first["filters"]["from"] == body["from"] and first["filters"]["to"] == body["to"]
+    assert len(first["items"]) == body["size"]
     assert 0 < len(first["items"]) <= 20
     rows = client.get(f'/api/cases/batches/{first["id"]}').json()["rows"]
     assert [(row["id"], row["unit"]) for row in rows] == [(item["id"], item["unit"]) for item in first["items"]]
@@ -179,7 +194,7 @@ def test_case_links_and_analysis_input(real_cases):
     response = client.post("/api/cases/analyses/estimate", json={"items": [{"id": fact.id, "unit": fact.unit}]})
     assert response.status_code == 200
     assert response.json()["cases"] == 1 and response.json()["images"] == len(images)
-    assert response.json()["estimated"] is None
+    assert response.json()["estimated"] > 0 and response.json()["currency"] == "USD"
     assert context.repo.find("case_analysis") == []
     with context.store.connection() as conn:
         assert conn.execute("SELECT count(*) FROM case_reviews").fetchone()[0] == 0
@@ -187,6 +202,45 @@ def test_case_links_and_analysis_input(real_cases):
     assert CaseQuery(line=fact.line, week=fact.week).unit is None
     assert BatchInput.model_validate({"line": fact.line, "from": "2026-11-02", "to": "2026-11-08", "unit": fact.unit, "strategy": "stratified", "size": 20}).seed == 0
     assert json.loads(json.dumps(inputs))["cases"][0]["id"] == fact.id
+
+
+def test_case_price_uses_real_cli_usage(real_cases):
+    context, _ = real_cases
+    costs = context.case_analyses.costs
+    price, source = costs.price()
+    assert price["model"] == json.loads((context.store.directory / "runtime.json").read_text())["model"]
+    with sqlite3.connect(f'{Path(source["database"]).as_uri()}?mode=ro', uri=True) as connection:
+        actual = connection.execute("SELECT input_cost_per_million,output_cost_per_million,cache_read_cost_per_million FROM model_pricing WHERE model_id=?", (price["model"],)).fetchone()
+    assert (price["input"], price["output"], price["cacheRead"]) == actual
+    history = Path(source["historyDirectories"][0])
+    directory = next(path.parent for path in history.glob("*/usage.json"))
+    usage = json.loads((directory / "usage.json").read_text())
+    assert costs.amount(usage, price) > 0
+    full_price = costs.amount({"input_tokens": usage["input_tokens"], "output_tokens": usage["output_tokens"]}, price)
+    assert costs.amount(usage, price) < full_price
+    inputs = json.loads((directory / "input.json").read_text())
+    quoted, snapshot = costs.quote(inputs)
+    assert quoted["estimated"] > 0 and quoted["currency"] == "USD" and quoted["spent"] is None
+    assert snapshot == price
+    assert CaseCosts.dimensions(inputs)[0] == len(inputs["cases"])
+
+
+def test_existing_batch_filters_and_video_tag_scope(real_cases):
+    context, client = real_cases
+    batch = client.post("/api/cases/batches", json={"line": "inspiration", "from": "2026-11-02", "to": "2026-11-08", "unit": "chain", "filters": {"outcome": "bad"}, "strategy": "problems", "size": 5}).json()
+    selected = batch["items"]
+    batch["filters"].update(sort="bad_first", offset="0", limit="50")
+    context.repo.save("case_batch", batch)
+    with context.store.connection() as connection:
+        connection.execute("UPDATE case_tags SET lines_json='[]' WHERE id IN ('motion_stiff','video_inconsistent','video_pacing')")
+    context.cases = Cases(context)
+    stored = context.repo.get("case_batch", batch["id"])
+    assert stored["items"] == selected and stored["filters"]["outcome"] == "bad"
+    assert not {"sort", "offset", "limit"} & stored["filters"].keys()
+    assert context.cases.batch(batch["id"], detail=True)["rows"]
+    assert len(context.cases.tags("inspiration")) == 13
+    assert len(context.cases.tags("video")) == 16
+    assert all(value["lines"] == ["video"] for value in context.cases.tags("video") if value["group"] == "视频")
 
 
 @pytest.mark.skipif(os.environ.get("R3_NETWORK_TEST") != "1", reason="需显式运行真实图片读取测试")
