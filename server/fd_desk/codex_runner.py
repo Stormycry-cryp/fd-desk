@@ -112,6 +112,8 @@ def execute_reserved(directory, prompt_path, schema_path, output_directory, time
                             classify(line)
                         if event.get("type") == "thread.started":
                             (output_directory / "session.json").write_text(dump({"threadId": event["thread_id"]}))
+                        if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
+                            (output_directory / "usage.json").write_text(dump(event["usage"]))
                         if log.tell() < 128 * 1024:
                             log.write(dump({"event": event.get("type")}) + "\n")
                     if len(buffer) > 2 * 1024 * 1024:

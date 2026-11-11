@@ -1,9 +1,9 @@
 export type Scope = "all" | Line
 export type Confidence = "high" | "medium" | "low"
 export type JobState = "queued" | "running" | "done" | "failed" | "cancelled"
-export type JobKind = "facts" | "profiles" | "movement" | "opportunities" | "followups" | "monitor" | "draft_write" | "finding_recheck" | "record_analysis" | "export"
+export type JobKind = "facts" | "profiles" | "movement" | "opportunities" | "followups" | "monitor" | "draft_write" | "finding_recheck" | "record_analysis" | "case_analysis" | "export"
 export type PipelineJobKind = "facts" | "profiles" | "movement" | "opportunities" | "followups" | "monitor"
-export type PageKey = "week" | "customers" | "enterprise" | "templates" | "playground" | "followups" | "analysis" | "data" | "export"
+export type PageKey = "week" | "customers" | "enterprise" | "templates" | "playground" | "followups" | "analysis" | "data" | "export" | "cases"
 export type ProfileTab = "profile" | "data" | "tasks" | "notes"
 
 export interface Job {
@@ -81,7 +81,7 @@ export interface TrialCase { id: Id; task: Task; cells: TrialCell[] }
 export interface TrialRun { id: Id; templateId: Id | null; arms: TrialArm[]; cases: TrialCase[]; state: JobState; cost: { estimated: number; spent: number; currency: "CNY" | "USD" }; summary: { armId: Id; done: number; total: number; better: number; same: number; worse: number; usable: number }[]; fidelity: { level: "exact" | "close" | "direct"; note: string }; createdAt: Timestamp }
 export interface TrialBudget { currency: "CNY" | "USD"; dailyLimit: number; spentToday: number; maxCases: number; maxArms: number; models: { id: string; label: string; fdModels: string[]; unitCost: number }[] }
 export type FollowupState = "todo" | "contacted" | "replied" | "shelved"
-export type AttachmentKind = "template" | "opportunity" | "chain" | "movement" | "trial"
+export type AttachmentKind = "template" | "opportunity" | "chain" | "movement" | "trial" | "case"
 export interface Followup { id: Id; line: Line; week: WeekKey; enterprise: EnterpriseRef; goal: Pool; reason: string; evidence: Evidence[]; attachments: { kind: AttachmentKind; id: Id; label: string; target: Locator }[]; script: Authored; state: FollowupState; reply: string | null; contactedAt: Timestamp | null; outcome: TouchOutcome | null; suggested: boolean; rank: number | null }
 export interface PipelineStep { kind: JobKind; state: JobState; progress: { done: number; total: number }; detail: string | null; error: ApiError | null; startedAt: Timestamp | null; finishedAt: Timestamp | null }
 export interface PipelineRun { id: Id; trigger: "collector" | "manual"; week: WeekKey | null; steps: PipelineStep[]; startedAt: Timestamp; finishedAt: Timestamp | null }
@@ -95,7 +95,7 @@ export type AskBlock =
 export interface AskMessage { id: Id; role: "user" | "assistant"; text: string | null; blocks: AskBlock[]; context: AskContext | null; state: "streaming" | "done" | "failed"; createdAt: Timestamp }
 export interface AskSession { id: Id; title: string; messages: AskMessage[]; createdAt: Timestamp; updatedAt: Timestamp }
 export type AskEvent = { type: "status"; text: string } | { type: "delta"; index: number; text: string } | { type: "block"; index: number; block: AskBlock } | { type: "done"; message: AskMessage } | { type: "error"; error: ApiError }
-export type ExportKind = "roster" | "annotations" | "movements" | "templates_official" | "templates_custom" | "opportunities" | "monitor" | "followups" | "analysis_matrix" | "analysis_failures" | "tasks" | "records"
+export type ExportKind = "roster" | "annotations" | "movements" | "templates_official" | "templates_custom" | "opportunities" | "monitor" | "followups" | "analysis_matrix" | "analysis_failures" | "tasks" | "records" | "cases"
 export interface ExportItem { kind: ExportKind; params: Record<string, string> }
 export interface FindingRecheck { at: Timestamp; verdict: Verdict; evidence: string; sample: string; changed: boolean }
 export interface ContractAdditions {
@@ -181,7 +181,76 @@ export interface ApiRecords {
   "GET /api/records/export": { query: { enterprise: Id; scope: Scope; rowKeys?: string; from?: DateKey; to?: DateKey }; response: Blob }
 }
 
-export interface ApiNext extends ApiRecords {
+export type CaseOutcome = "bad" | "grind" | "good"
+export type CaseUnit = "chain" | "task"
+export type CaseRating = "good" | "ok" | "bad"
+export type CaseStatus = "todo" | "seen" | "done"
+export type StepResult = "downloaded" | "not_downloaded" | "failed" | "deleted"
+export interface CaseRef { id: Id; unit: CaseUnit }
+export interface CaseReview { rating: CaseRating | null; tags: Id[]; status: CaseStatus; inherited: boolean; updatedAt: Timestamp }
+export interface CaseTag { id: Id; group: string; label: string; lines: Line[]; tone: "bad" | "good" | "neutral"; order: number; archived: boolean }
+export interface CaseStep { rowKey: Id; index: number; result: StepResult; pattern: Pattern; createdAt: Timestamp; prompt: string; inputs: Media[]; outputs: Media[]; durationSeconds: number | null; points: number; review: CaseReview | null }
+export interface CaseRow {
+  id: Id; unit: CaseUnit; line: Line
+  enterprise: EnterpriseRef & { level: Level | null; movement: Movement | null }
+  user: Task["user"]; outcome: CaseOutcome; startedAt: Timestamp; endedAt: Timestamp
+  stepCount: number; downloadedAt: number | null; intent: string | null; mode: string; model: string | null
+  config: Task["config"]; points: number; durationSeconds: number | null; slow: boolean; failure: Task["failure"]
+  first: CaseStep; last: CaseStep; steps: CaseStep[] | null; fdUrl: string | null; review: CaseReview | null
+  annotationCount: number; lastAnnotation: { text: string; at: Timestamp } | null; collections: Id[]
+}
+export interface CaseSummary {
+  total: number; outcomes: Record<CaseOutcome, number>
+  byIntent: { key: string; total: number; bad: number; grind: number }[]
+  byEnterprise: { enterprise: EnterpriseRef; total: number; bad: number; grind: number }[]
+  rated: number; ratings: Record<CaseRating, number>
+}
+export interface CasePage {
+  items: CaseRow[]; total: number; summary: CaseSummary
+  facets: { outcomes: RecordFacet[]; results: RecordFacet[]; intents: RecordFacet[]; patterns: RecordFacet[]; models: RecordFacet[]; modes: RecordFacet[]; enterprises: { id: Id; name: string; count: number }[]; levels: RecordFacet[]; movements: RecordFacet[]; steps: RecordFacet[]; ratings: RecordFacet[]; tags: RecordFacet[]; statuses: RecordFacet[]; slow: number; noted: number }
+  range: { from: DateKey; to: DateKey } | null
+}
+export interface CaseQuery {
+  line: Line; week?: WeekKey; from?: DateKey; to?: DateKey; unit?: CaseUnit
+  enterprise?: string; outcome?: string; result?: string; intent?: string; pattern?: string; model?: string; mode?: string
+  level?: string; movement?: string; slow?: boolean; steps?: string; rating?: string; tag?: string; status?: string
+  collection?: Id; noted?: "any" | "none"; q?: string
+  sort?: "bad_first" | "newest" | "oldest" | "steps" | "points"; offset?: number; limit?: number
+}
+export interface CaseCollection { id: Id; name: string; line: Line; count: number; createdAt: Timestamp; updatedAt: Timestamp }
+export type CaseSampleStrategy = "stratified" | "problems" | "per_enterprise" | "per_intent"
+export interface CaseBatch { id: Id; line: Line; name: string; strategy: CaseSampleStrategy; filters: Record<string, string>; items: CaseRef[]; reviewed: number; createdAt: Timestamp }
+export interface CaseCluster { title: string; summary: string; tags: Id[]; caseIds: Id[]; enterprises: EnterpriseRef[]; severity: "high" | "medium" | "low" }
+export interface CaseAnalysis { id: Id; line: Line; items: CaseRef[]; question: string | null; state: JobState; headline: string; clusters: CaseCluster[]; perCase: { id: Id; rating: CaseRating; tags: Id[]; note: string }[]; suggestions: string[]; cost: { estimated: number | null; spent: number | null; currency: string }; error: ApiError | null; createdAt: Timestamp; finishedAt: Timestamp | null }
+export interface CaseIssue { tag: CaseTag; cases: number; enterprises: number; topEnterprises: { enterprise: EnterpriseRef; cases: number }[]; weekly: { week: WeekKey; cases: number }[]; samples: (CaseRef & { thumb: string | null })[]; linked: { followups: number; opportunities: number; templates: number } }
+export interface Template { sourceCases: (CaseRef & { thumb: string | null })[] }
+export interface ApiCases {
+  "GET /api/cases": { query: CaseQuery; response: CasePage }
+  "GET /api/cases/:id": { query: { unit: CaseUnit; week?: WeekKey }; response: CaseRow & { annotations: Annotation[] } }
+  "GET /api/cases/tags": { query: { line: Line; all?: boolean }; response: CaseTag[] }
+  "POST /api/cases/tags": { body: Pick<CaseTag, "group" | "label" | "lines" | "tone">; response: CaseTag }
+  "PATCH /api/cases/tags/:id": { body: Partial<Pick<CaseTag, "group" | "label" | "lines" | "tone" | "order" | "archived">>; response: CaseTag }
+  "PUT /api/cases/reviews": { body: { items: CaseRef[]; rating?: CaseRating | null; addTags?: Id[]; removeTags?: Id[]; status?: CaseStatus }; response: { updated: number } }
+  "DELETE /api/cases/reviews": { body: { items: CaseRef[] }; response: { updated: number } }
+  "GET /api/cases/collections": { query: { line: Line }; response: CaseCollection[] }
+  "POST /api/cases/collections": { body: { line: Line; name: string }; response: CaseCollection }
+  "PATCH /api/cases/collections/:id": { body: { name: string }; response: CaseCollection }
+  "DELETE /api/cases/collections/:id": { response: null }
+  "PUT /api/cases/collections/:id/items": { body: { add?: CaseRef[]; remove?: CaseRef[] }; response: CaseCollection }
+  "POST /api/cases/batches": { body: { line: Line; from: DateKey; to: DateKey; unit: CaseUnit; filters: Record<string, string>; strategy: CaseSampleStrategy; size: number; perGroup?: number; seed?: number; name?: string }; response: CaseBatch }
+  "GET /api/cases/batches": { query: { line: Line }; response: CaseBatch[] }
+  "GET /api/cases/batches/:id": { response: CaseBatch & { rows: CaseRow[] } }
+  "DELETE /api/cases/batches/:id": { response: null }
+  "POST /api/cases/analyses/estimate": { body: { items: CaseRef[] }; response: { cases: number; images: number; estimated: number | null; currency: string } }
+  "POST /api/cases/analyses": { body: { line: Line; items: CaseRef[]; question?: string }; response: CaseAnalysis }
+  "GET /api/cases/analyses": { query: { line: Line }; response: CaseAnalysis[] }
+  "GET /api/cases/analyses/:id": { response: CaseAnalysis }
+  "DELETE /api/cases/analyses/:id": { response: null }
+  "GET /api/cases/issues": { query: { line: Line; week?: WeekKey; from?: DateKey; to?: DateKey; enterprise?: string }; response: CaseIssue[] }
+  "GET /api/cases/export": { query: CaseQuery & { ids?: string }; response: Blob }
+}
+
+export interface ApiNext extends ApiRecords, ApiCases {
   "POST /api/profiles/init": { response: PipelineRun }
   "GET /api/profiles/:id": { response: Profile }
   "GET /api/profiles": { query: { ids: string }; response: Profile[] }
@@ -206,7 +275,7 @@ export interface ApiNext extends ApiRecords {
   "POST /api/templates/opportunities/refresh": { body: { line: Line; week: WeekKey }; response: Job }
   "GET /api/templates": { query: { line: Line; kind?: TemplateKind; state?: TemplateState; enterprise?: Id }; response: Template[] }
   "GET /api/templates/:id": { response: Template }
-  "POST /api/templates": { body: { line: Line; kind: TemplateKind; target?: Id; opportunityId?: Id; clusterIds?: Id[]; content?: Partial<TemplateContent>; write: boolean }; response: { template: Template; job: Job | null } }
+  "POST /api/templates": { body: { line: Line; kind: TemplateKind; target?: Id; opportunityId?: Id; clusterIds?: Id[]; caseIds?: Id[]; content?: Partial<TemplateContent>; write: boolean }; response: { template: Template; job: Job | null } }
   "PATCH /api/templates/:id": { body: Partial<{ kind: TemplateKind; target: Id | null; state: TemplateState; content: TemplateContent; fdTemplateId: number | null; cover: { runId: Id; caseId: Id; armId: Id } | null }>; response: Template }
   "POST /api/templates/:id/revise": { body: { kind: ReviseKind; instruction?: string; runId?: Id }; response: Job }
   "POST /api/templates/:id/restore": { body: { version: number }; response: Template }
@@ -214,7 +283,7 @@ export interface ApiNext extends ApiRecords {
   "DELETE /api/templates/:id": { response: null }
   "GET /api/templates/monitor": { query: { line: Line; kind?: TemplateKind }; response: TemplateMonitor[] }
   "GET /api/trials/budget": { response: TrialBudget }
-  "GET /api/trials/candidates": { query: { template?: Id; cluster?: Id; enterprise?: Id; chain?: Id; limit?: number }; response: Task[] }
+  "GET /api/trials/candidates": { query: { template?: Id; cluster?: Id; enterprise?: Id; chain?: Id; caseIds?: string; limit?: number }; response: Task[] }
   "GET /api/trials": { query: { template?: Id; enterprise?: Id }; response: TrialRun[] }
   "POST /api/trials": { body: { templateId?: Id; taskRowKeys: Id[]; arms: { label: string; prompt: string; model: string; templateVersion?: number }[] }; response: TrialRun }
   "GET /api/trials/:id": { response: TrialRun }
@@ -226,7 +295,7 @@ export interface ApiNext extends ApiRecords {
   "POST /api/trials/:id/adopt": { body: { armId: Id; cover?: { caseId: Id } }; response: Template }
   "GET /api/trials/:id/media/:caseId/:armId/:name": { response: Blob }
   "GET /api/followups": { query: { line: Line; week: WeekKey }; response: { items: Followup[]; suggestions: Followup[] } }
-  "POST /api/followups": { body: { line: Line; week: WeekKey; enterprise: Id; goal: Pool; reason?: string; script?: string }; response: Followup }
+  "POST /api/followups": { body: { line: Line; week: WeekKey; enterprise: Id; goal: Pool; reason?: string; script?: string; attachments?: { kind: AttachmentKind; id: Id }[] }; response: Followup }
   "PATCH /api/followups/:id": { body: Partial<{ goal: Pool; state: FollowupState; script: string; reply: string | null; suggested: boolean; attachments: { kind: AttachmentKind; id: Id }[] }>; response: Followup }
   "DELETE /api/followups/:id": { response: null }
   "GET /api/pipeline": { response: { latest: PipelineRun | null; history: PipelineRun[]; limits: { profilesPerRun: number; concurrency: number }; initialization: { id: string; state: "running" | "waiting" | "daily_limit" | "complete"; requestedAt: Timestamp; nextAttemptAt: Timestamp | null; eligible: number; completed: number; remaining: number } | null; capacity: { totalLimit: number; reservedSlots: number; serviceLimit: number; backgroundLimit: number; running: number; queued: number; categories: { category: string; state: "queued" | "running"; count: number }[] } } }

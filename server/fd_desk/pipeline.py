@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict
 
 from .core import LINES, ROOT, ApiProblem, now, validate_week
-from .jobs import MODEL_KINDS
+from .jobs import DAILY_LIMIT_KINDS
 from .model_capacity import ModelCapacity
 from .views import meta
 
@@ -201,9 +201,9 @@ class Pipeline:
             if initial["nextAttemptAt"] and initial["nextAttemptAt"] > now():
                 return
             today = now()[:10]
-            marks = ",".join("?" for _ in MODEL_KINDS)
+            marks = ",".join("?" for _ in DAILY_LIMIT_KINDS)
             with self.store.connection() as conn:
-                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(MODEL_KINDS))).fetchone()[0]
+                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(DAILY_LIMIT_KINDS))).fetchone()[0]
             if used >= self.store.settings()["pipeline"]["dailyJobs"]:
                 tomorrow = (datetime.fromisoformat(now()) + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
                 initial.update(state="daily_limit", nextAttemptAt=tomorrow.isoformat())

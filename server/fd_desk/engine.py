@@ -8,6 +8,7 @@ import orjson
 import pandas as pd
 from rapidfuzz import fuzz
 
+from .case_index import CaseIndex
 from .core import ROOT, digest, ratio, read_spec, shift_week, week_key
 from .similarity import PromptMatcher
 from .trends import calculate as calculate_trends
@@ -39,6 +40,7 @@ class Engine:
         self.version = None
         self.facts_version = None
         self.roster_cache = {}
+        self.customer_status_cache = {}
         self.trend_cache = {}
         self.group_cache = {}
         self.cluster_cache = {}
@@ -62,6 +64,7 @@ class Engine:
         if not facts_changed:
             if previous_metadata != (self.enterprises, self.settings, self.findings):
                 self.roster_cache.clear()
+                self.customer_status_cache.clear()
                 self.trend_cache.clear()
                 self.cluster_stats_cache.clear()
                 if previous_metadata[1]["clusters"] != self.settings["clusters"]:
@@ -176,12 +179,16 @@ class Engine:
         self.enterprise_all_indices = self.frame.groupby("enterprise_id", sort=False).indices
         self.enterprise_indices = self.frame.groupby(["line", "week", "enterprise_id"], sort=False).indices
         self.week_stats = self.frame.groupby(["line", "week", "enterprise_id"], sort=False).agg(tasks=("row_key", "size"), points=("points", "sum"), activeDays=("day", "nunique"), downloads=("downloaded", "sum")).to_dict("index")
+        self.weekday_counts = self.frame.groupby(["line", "week", "enterprise_id", "weekday"], sort=False).size().to_dict()
+        self.first_seen = self.frame.groupby(["line", "enterprise_id"], sort=False).week.min().to_dict()
         self.frame["normalized_prompt"] = self.frame.prompt.map(lambda prompt: re.sub(r"[\W_]+", "", prompt))
         self.frame["user_id"] = self.frame.user_phone.map(lambda phone: digest(phone, 10) if phone else None)
         self.frame["result"] = self.frame.status.map({"success": "not_downloaded"})
         self.frame.loc[self.frame.downloaded, "result"] = "downloaded"
         self.frame.loc[self.frame.failed, "result"] = "failed"
+        self.case_index = CaseIndex(self)
         self.roster_cache.clear()
+        self.customer_status_cache.clear()
         self.trend_cache.clear()
         self.group_cache.clear()
         self.cluster_cache.clear()
@@ -302,6 +309,40 @@ class Engine:
                 representatives.append([prompt, int(uses)])
         return max((item[1] for item in representatives), default=0)
 
+    def customer_statuses(self, line, week):
+        self.refresh()
+        key = (line, week)
+        if key in self.customer_status_cache:
+            return self.customer_status_cache[key]
+        previous = shift_week(week, -1)
+        days = set(self.weekdays(line, week)) & set(self.weekdays(line, previous))
+        base = self.settings["thresholds"][line]["moverBase"]
+        result = {}
+        for (kind, enterprise), first in self.first_seen.items():
+            if kind != line or first > week:
+                continue
+            current = self.week_stats.get((line, week, enterprise), {}).get("tasks", 0)
+            before = self.week_stats.get((line, previous, enterprise), {}).get("tasks", 0)
+            a = sum(self.weekday_counts.get((line, week, enterprise, day), 0) for day in days)
+            b = sum(self.weekday_counts.get((line, previous, enterprise, day), 0) for day in days)
+            if current == 0 and before == 0:
+                movement = "lost"
+            elif current == 0:
+                movement = "silent"
+            elif days and b >= base and a < b * 0.5:
+                movement = "drop"
+            elif days and a >= base and a > b * 2:
+                movement = "surge"
+            elif before == 0 and first < previous:
+                movement = "returned"
+            elif first == week:
+                movement = "new"
+            else:
+                movement = "steady"
+            result[enterprise] = {"level": self.week_point(line, week, enterprise)["level"], "movement": movement}
+        self.customer_status_cache[key] = result
+        return result
+
     def base_roster(self, line, week):
         self.refresh()
         cache_key = (line, week)
@@ -313,28 +354,14 @@ class Engine:
         current_comparable, previous_comparable, days = self.comparable(line, week)
         complete = self.coverage(line, week)["complete"]
         trends = {item["enterpriseId"]: item for item in calculate_trends(self, line, week)}
+        statuses = self.customer_statuses(line, week)
+        base = self.settings["thresholds"][line]["moverBase"]
         for enterprise_id, history in all_line.groupby("enterprise_id", sort=False):
             enterprise = self.enterprises[enterprise_id]
             current = history[history.week == week]
-            previous = history[history.week == shift_week(week, -1)]
-            older = history[history.week < shift_week(week, -1)]
             a = current_comparable[current_comparable.enterprise_id == enterprise_id]
             b = previous_comparable[previous_comparable.enterprise_id == enterprise_id]
-            base = self.settings["thresholds"][line]["moverBase"]
-            if current.empty and previous.empty:
-                movement = "lost"
-            elif current.empty:
-                movement = "silent"
-            elif days and len(b) >= base and len(a) < len(b) * 0.5:
-                movement = "drop"
-            elif days and len(a) >= base and len(a) > len(b) * 2:
-                movement = "surge"
-            elif previous.empty and len(older):
-                movement = "returned"
-            elif len(history[history.week < week]) == 0:
-                movement = "new"
-            else:
-                movement = "steady"
+            movement = statuses[enterprise_id]["movement"]
             quick = current[current.pattern != "agent"]
             batch_share = ratio(int((quick.pattern == "batch").sum()), len(quick))
             stuck_share = ratio(int(quick.pattern.isin(["retry", "tweak"]).sum()), len(quick))

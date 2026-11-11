@@ -17,6 +17,14 @@ export function effectiveArgs(args, context = {}) {
     for (const field of ["from", "to", "result", "intent", "mode", "model", "user", "pattern", "noted", "q", "sort"])
       if (result[field] === undefined && typeof context.filters?.[field] === "string") result[field] = context.filters[field];
   }
+  if (["cases", "case_issues"].includes(args.query)) {
+    for (const field of ["from", "to", "unit", "outcome", "result", "intent", "pattern", "model", "mode", "level", "movement", "slow", "steps", "rating", "tag", "status", "collection", "noted", "q", "sort"])
+      if (result[field] === undefined && typeof context.filters?.[field] === "string") result[field] = context.filters[field];
+  }
+  if (args.query === "case_detail") {
+    if (result.caseId === undefined && context.filters?.case) result.caseId = context.filters.case;
+    if (result.unit === undefined) result.unit = context.filters?.unit || (result.line === "video" ? "task" : "chain");
+  }
   return result;
 }
 

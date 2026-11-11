@@ -15,6 +15,12 @@ STATES = {"draft": "todo", "assigned": "todo", "sent": "contacted", "replied": "
 GOALS = {"keep": "保住", "help": "帮助", "recall": "召回", "retain": "维持", "nurture": "培育", "convert": "转化"}
 
 
+class AttachmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["template", "opportunity", "chain", "movement", "trial", "case"]
+    id: str
+
+
 class FollowupCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     line: Line
@@ -23,12 +29,7 @@ class FollowupCreate(BaseModel):
     goal: Pool
     reason: str = ""
     script: str = ""
-
-
-class AttachmentInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    kind: Literal["template", "opportunity", "chain", "movement", "trial"]
-    id: str
+    attachments: list[AttachmentInput] | None = Field(default=None, max_length=20)
 
 
 class FollowupPatch(BaseModel):
@@ -88,6 +89,11 @@ class Followups:
 
     def attachment(self, kind, key, enterprise, line, week):
         target = {"page": "enterprise", "line": line, "week": week, "enterprise": enterprise}
+        if kind == "case":
+            fact = self.context.cases.fact(key)
+            if fact.enterprise != enterprise or fact.line != line:
+                raise ApiProblem(422, "invalid_attachment", "Case 与所选企业或产品线不一致")
+            return {"kind": kind, "id": key, "label": f"{len(fact.indices)} 步 Case", "target": {"page": "cases", "line": line, "week": fact.week, "enterprise": enterprise, "filters": {"case": key, "unit": fact.unit}}}
         if kind == "template":
             item = self.context.templates.get(key)
             if item["line"] != line or item["kind"] == "custom" and item["target"]["id"] != enterprise:
@@ -142,7 +148,7 @@ class Followups:
         enterprise = self.store.enterprise(body.enterprise)
         week = validate_week(body.week)
         item = {"id": uuid4().hex, "line": body.line, "week": week, "enterprise": ref(enterprise), "goal": body.goal,
-                "reason": body.reason, "evidence": [], "attachments": self.attachments(body.enterprise, body.line, week, body.goal),
+                "reason": body.reason, "evidence": [], "attachments": [self.attachment(value.kind, value.id, body.enterprise, body.line, week) for value in body.attachments] if body.attachments is not None else self.attachments(body.enterprise, body.line, week, body.goal),
                 "script": authored(body.script, "manual"), "state": "todo", "reply": None, "contactedAt": None,
                 "outcome": None, "suggested": False, "rank": None}
         return self.repo.save("followup", item)

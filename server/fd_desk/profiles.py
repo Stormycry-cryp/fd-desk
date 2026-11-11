@@ -173,6 +173,10 @@ class Profiles:
                     record = conn.execute("SELECT 1 FROM tasks WHERE row_key=? AND enterprise_id=? AND line IN ('inspiration','video')", (block.removeprefix("record:"), enterprise)).fetchone()
                 if record is None:
                     raise ApiProblem(422, "invalid_record_anchor", "记录批注必须关联当前企业的真实记录")
+            if block.startswith("case:"):
+                fact = self.context.cases.fact(block.removeprefix("case:"))
+                if fact.enterprise != enterprise:
+                    raise ApiProblem(422, "invalid_case_anchor", "Case 批注必须关联当前企业的真实记录")
             anchor = {**anchor, "insightId": anchor.get("insightId"), "quote": anchor.get("quote"), "stale": False}
         item = {"id": uuid4().hex, "enterprise": ref(entity), "kind": kind, "anchor": anchor, "entries": [{"id": uuid4().hex, "text": text, "createdAt": stamp, "editedAt": None}], "resolved": False, "createdAt": stamp, "updatedAt": stamp}
         self.repo.save("annotation", item)

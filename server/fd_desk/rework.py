@@ -2,6 +2,8 @@ import asyncio
 from contextlib import suppress
 
 from . import (
+    case_analysis,
+    cases,
     exports,
     findings,
     followups,
@@ -29,6 +31,8 @@ class ReworkContext:
         self.jobs = Jobs(self.repo, store)
         self.model = ModelRunner(store)
         self.profiles = profiles.Profiles(self)
+        self.cases = cases.Cases(self)
+        self.case_analyses = case_analysis.CaseAnalyses(self)
         self.records = records.Records(self)
         self.record_analyses = record_analysis.RecordAnalyses(self)
         self.templates = templates.Templates(self)
@@ -63,5 +67,5 @@ class ReworkContext:
 
 
 def mount(app, context):
-    for module in (profiles, records, record_analysis, trends, movements, templates, trials, followups, pipeline, findings, exports):
+    for module in (profiles, records, record_analysis, trends, movements, templates, trials, followups, pipeline, findings, exports, case_analysis, cases):
         module.mount(app, context)

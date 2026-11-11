@@ -12,7 +12,7 @@
   - `good`：第一步就下载了。
 - **单条结果**在现有 `downloaded | not_downloaded | failed` 之外加一个 `deleted`（`status == "deleted"`）。deleted 算 bad 的一种。
 - **评价作用在 case 上**：给链打分，链上每一步都继承这个评价；需要时可以给某一步单独打分，覆盖继承来的。
-- **AI 分析**只在用户主动点了以后才跑，发起前要返回预计花费。
+- **AI 分析**只在用户主动点击后执行，调用本机 Codex CLI。发起前返回 Case 和图片数量，费用金额保留为空。
 - **导出**为 xlsx，图片放链接，不嵌图。
 - **默认排序**：bad 优先，然后按时间倒序。要支持分页，一周灵感成款大约 9,000 条，合成链大约 5,000 个。
 
@@ -26,7 +26,7 @@
 |---|---|
 | `line` | 必填，`inspiration` 或 `video` |
 | `week` 或 `from`/`to` | 二选一，`from`/`to` 优先。按链的第一步落在哪天算 |
-| `unit` | `chain`（默认）或 `task`。按单条看时 outcome 用单条结果映射：downloaded→good，not_downloaded、failed、deleted→bad |
+| `unit` | `chain` 或 `task`。灵感成款默认 chain，AI 视频默认 task。按单条看时 outcome 用单条结果映射：downloaded→good，not_downloaded、failed、deleted→bad |
 | `enterprise` | 逗号分隔的多个企业 |
 | `outcome` | 逗号分隔的多选：`bad,grind,good` |
 | `result` | 逗号分隔的多选：链上只要有一步符合就算命中 |
@@ -135,8 +135,8 @@ export interface CasePage {
 - **`downloadedAt`**：第一次下载发生在第几步，从 0 开始；没下载过是 `null`。
 - **`steps`**：列表里返回 `null`，详情接口才返回全部步骤。`first` 和 `last` 始终返回，前端靠它们在一行里显示「输入 → 最终结果」。
 - **`intent`、`model`、`mode`**：取链上出现最多的值；一样多时取第一步的。
-- **`points`、`durationSeconds`**：链上各步求和。
-- **`slow`**：链上任意一步超过 P90 就算。
+- **`points`、`durationSeconds`**：链上各步求和。任一步耗时缺失时，链的总耗时为 null。
+- **`slow`**：链上任意一步超过 P90 就算。每一步使用其所在周及之前三周同一模型、同一业务线的有效耗时作为基准。
 - **`enterprise.level`、`enterprise.movement`**：按记录页当前的周取值。用的是自定义起止日期时，按 `to` 所在的周取。
 - **`summary`**：只受 `line`、时间和 `enterprise` 影响，不受其他筛选影响，因为它是页面顶部的固定概览。
 - **`facets`**：沿用 `/api/records` 的做法，每个维度的计数忽略该维度自身的筛选。
@@ -272,7 +272,7 @@ export interface CaseBatch {
 通用规则：
 
 - `seed` 相同则结果相同。
-- 已经评过的 case 默认跳过；`filters.rating` 明确要求时除外。
+- 已经抽过的记录默认跳过；按底层 rowKey 判断，删除批次后仍保留抽样历史。已经评过的 Case 默认跳过，`filters.rating` 明确要求时可以包含已评价的 Case。
 - `reviewed` 等于批次里有 rating 的 case 数，实时计算。
 
 ## 六、AI 分析（只在用户点击时运行）
@@ -297,7 +297,7 @@ export interface CaseAnalysis {
   clusters: CaseCluster[]
   perCase: { id: Id; rating: CaseRating; tags: Id[]; note: string }[]
   suggestions: string[]
-  cost: { estimated: number; spent: number; currency: string }
+  cost: { estimated: number | null; spent: number | null; currency: string }
   error: ApiError | null
   createdAt: Timestamp
   finishedAt: Timestamp | null
@@ -306,7 +306,7 @@ export interface CaseAnalysis {
 
 接口：
 
-- `POST /api/cases/analyses/estimate`：请求体 `{ items }`，返回 `{ cases: number; images: number; estimated: number; currency: string }`。发起前展示用。
+- `POST /api/cases/analyses/estimate`：请求体 `{ items }`，返回 `{ cases: number; images: number; estimated: number | null; currency: string }`。金额为 null，未知币种为空字符串，直接执行分析。
 - `POST /api/cases/analyses`：请求体 `{ line; items; question?: string }`，最多 40 个 case。
 - `GET /api/cases/analyses?line=`
 - `GET /api/cases/analyses/:id`
@@ -339,7 +339,7 @@ export interface CaseIssue {
 
 规则：
 
-- 只统计用户确认过的评价，也就是 `case_reviews` 里的数据，不含 AI 初判。
+- 只统计用户确认过的评价，也就是 `case_reviews` 里的数据，不含 AI 初判。明确保存的链评价与单条评价分别计数，继承到步骤的评价不会重复计数；手工添加标签的评价也参与统计。
 - 按 `cases` 降序排。
 - `weekly` 取最近 8 周。
 - `samples` 最多 4 个，优先取 rating 为 bad 的。
@@ -385,7 +385,7 @@ export interface CaseIssue {
   "GET /api/cases/batches": { query: { line: Line }; response: CaseBatch[] }
   "GET /api/cases/batches/:id": { response: CaseBatch & { rows: CaseRow[] } }
   "DELETE /api/cases/batches/:id": { response: null }
-  "POST /api/cases/analyses/estimate": { body: { items: { id: Id; unit: CaseUnit }[] }; response: { cases: number; images: number; estimated: number; currency: string } }
+  "POST /api/cases/analyses/estimate": { body: { items: { id: Id; unit: CaseUnit }[] }; response: { cases: number; images: number; estimated: number | null; currency: string } }
   "POST /api/cases/analyses": { body: { line: Line; items: { id: Id; unit: CaseUnit }[]; question?: string }; response: CaseAnalysis }
   "GET /api/cases/analyses": { query: { line: Line }; response: CaseAnalysis[] }
   "GET /api/cases/analyses/:id": { response: CaseAnalysis }
@@ -404,7 +404,7 @@ export interface CaseIssue {
 
 - **链结局**：灵感成款按链看时，`outcomes` 三类之和等于该周链的总数。拿杭州承甫 `1cd6112680` 抽查，「未下载但后面某一步下载了」的那些步骤，所在链必须是 `grind`，不能是 `bad`。
 - **被删除的步骤**：status 为 deleted 的 99 条，它们所在的链全部是 `bad`，除非之后某一步下载了。
-- **按单条看**：灵感成款 `total` 等于 9,077 减去当周无效行，与 `/api/overview` 的任务数口径一致。
+- **按单条看**：灵感成款 `total` 与当前数据库和 `/api/overview` 的任务数一致。当前同周真实数据为 9,066 条，视频为 882 条。
 - **评价继承**：给一条链打 bad 后，详情里每一步的 `review.inherited` 为 true。再单独给第 2 步打 good，只有第 2 步是 `inherited: false`。
 - **筛选**：同时筛 `outcome=bad&level=heavy,medium` 时，`facets.outcomes` 里 grind 和 good 的计数不为 0（计数忽略该维度自身的筛选）。
 - **性能**：灵感成款全周按链看、`limit=50` 时，响应在 300ms 以内；`/api/cases/issues` 在 500ms 以内。

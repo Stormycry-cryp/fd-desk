@@ -94,7 +94,7 @@ class Trials:
             raise ApiProblem(422, "unsupported_trial", "试验台只支持灵感成款模板")
         return template
 
-    def candidates(self, template=None, cluster=None, enterprise=None, chain=None, limit=6):
+    def candidates(self, template=None, cluster=None, enterprise=None, chain=None, limit=6, case_ids=None):
         with self.store.lock:
             self.engine.refresh()
             selected = self.template(template)
@@ -105,13 +105,19 @@ class Trials:
                 enterprise = owner
             frame = self.engine.frame
             frame = frame[frame.line == "inspiration"]
+            if case_ids:
+                facts = [self.context.cases.fact(key.strip()) for key in case_ids.split(",") if key.strip()]
+                if any(fact.line != "inspiration" or enterprise and fact.enterprise != enterprise for fact in facts):
+                    raise ApiProblem(422, "invalid_trial_case", "Case 与试验台产品线或目标企业不一致")
+                first_indices = list(dict.fromkeys(fact.indices[0] for fact in facts))
+                frame = frame.loc[frame.index.intersection(first_indices)]
             if enterprise:
                 frame = frame[frame.enterprise_id == enterprise]
             if chain:
                 if chain not in self.engine.chains:
                     raise ApiProblem(404, "not_found", "连续尝试不存在")
                 frame = frame.loc[frame.index.intersection(self.engine.chains[chain])]
-            clusters = [cluster] if cluster else (selected["origin"]["clusterIds"] if selected else [])
+            clusters = [cluster] if cluster else (selected["origin"]["clusterIds"] if selected and not case_ids else [])
             if clusters:
                 indices = set()
                 for cluster_id in clusters:
@@ -408,8 +414,8 @@ def mount(app: FastAPI, context):
         return context.trials.budget()
 
     @app.get("/api/trials/candidates")
-    def candidates(template: str | None = None, cluster: str | None = None, enterprise: str | None = None, chain: str | None = None, limit: int = 6):
-        return context.trials.candidates(template, cluster, enterprise, chain, limit)
+    def candidates(template: str | None = None, cluster: str | None = None, enterprise: str | None = None, chain: str | None = None, limit: int = 6, caseIds: str | None = None):
+        return context.trials.candidates(template, cluster, enterprise, chain, limit, caseIds)
 
     @app.get("/api/trials")
     def list_trials(template: str | None = None, enterprise: str | None = None):

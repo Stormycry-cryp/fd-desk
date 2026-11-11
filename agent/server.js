@@ -45,6 +45,13 @@ const queryDefs = {
   trends: ["/api/trends", ["line", "week"], "week"],
   records: ["/api/records", ["enterprise", "scope", "from", "to", "result", "intent", "mode", "model", "user", "pattern", "noted", "q", "sort", "offset", "limit"], "enterprise"],
   record_analyses: ["/api/records/analyses", ["enterprise"], "enterprise"],
+  cases: ["/api/cases", ["line", "week", "from", "to", "unit", "enterprise", "outcome", "result", "intent", "pattern", "model", "mode", "level", "movement", "slow", "steps", "rating", "tag", "status", "collection", "noted", "q", "sort", "offset", "limit"], "cases"],
+  case_detail: ["/api/cases/:caseId", ["unit", "week"], "cases"],
+  case_issues: ["/api/cases/issues", ["line", "week", "from", "to", "enterprise"], "cases"],
+  case_tags: ["/api/cases/tags", ["line"], "cases"],
+  case_collections: ["/api/cases/collections", ["line"], "cases"],
+  case_batches: ["/api/cases/batches", ["line"], "cases"],
+  case_analyses: ["/api/cases/analyses", ["line"], "cases"],
   inspiration_analysis: ["/api/analysis/inspiration", ["week", "excluded"], "analysis"],
   video_analysis: ["/api/analysis/video", ["week", "excluded"], "analysis"],
   clusters: ["/api/clusters", ["line", "week", "enterprise", "candidate"], "analysis"],
@@ -60,7 +67,7 @@ const queryDefs = {
   conversion: ["/api/conversion", ["line", "week"], "customers"],
   cross_line: ["/api/cross-line", ["week"], "analysis"],
   trials: ["/api/trials", ["template", "enterprise"], "playground"],
-  trial_candidates: ["/api/trials/candidates", ["template", "cluster", "enterprise", "chain", "limit"], "playground"],
+  trial_candidates: ["/api/trials/candidates", ["template", "cluster", "enterprise", "chain", "caseIds", "limit"], "playground"],
   trial_budget: ["/api/trials/budget", [], "playground"],
   pipeline: ["/api/pipeline", [], "data"],
   imports: ["/api/imports", [], "data"],
@@ -77,8 +84,11 @@ const instructions = `你是 fd-desk 的产品与客户分析助手。理解用�
 const sessions = new Map();
 Object.assign(parameters.properties, {
   scope: { type: "string", enum: ["all", "inspiration", "video"] },
-  result: { type: "string", enum: ["downloaded", "not_downloaded", "failed"] },
-  sort: { type: "string", enum: ["newest", "oldest"] },
+  result: { type: "string", description: "Case 支持 downloaded、not_downloaded、failed、deleted，逗号分隔多选；records 使用单个结果" },
+  sort: { type: "string", enum: ["newest", "oldest", "bad_first", "steps", "points"] },
+  caseId: { type: "string" }, caseIds: { type: "string" }, unit: { type: "string", enum: ["chain", "task"] },
+  outcome: { type: "string" }, steps: { type: "string" }, rating: { type: "string" }, tag: { type: "string" },
+  status: { type: "string" }, collection: { type: "string" }, slow: choice,
   trend: { type: "string", description: "客户多周趋势，churned、sliding、fading；多值使用逗号分隔" },
   view: {
     type: "object", properties: {
@@ -124,6 +134,7 @@ function targetFor(page, args) {
     const filters = Object.fromEntries((queryDefs[args.query]?.[1] || []).filter(key => !["line", "week", "enterprise"].includes(key) && args[key] !== undefined && args[key] !== null && args[key] !== "" && args[key] !== "any").map(key => [key, String(args[key])]));
     if (Object.keys(filters).length) target.filters = filters;
   }
+  if (args.query === "case_detail") target.filters = { ...target.filters, case: args.caseId };
   return target;
 }
 
@@ -137,6 +148,10 @@ function makeRegistry() {
     if (path.includes(":enterprise")) {
       if (typeof args.enterprise !== "string" || !/^[a-zA-Z0-9_-]{1,120}$/.test(args.enterprise)) throw Error("需要有效的企业 ID");
       path = path.replace(":enterprise", encodeURIComponent(args.enterprise));
+    }
+    if (path.includes(":caseId")) {
+      if (typeof args.caseId !== "string" || !/^[a-zA-Z0-9_-]{1,120}$/.test(args.caseId)) throw Error("需要有效的 Case ID");
+      path = path.replace(":caseId", encodeURIComponent(args.caseId));
     }
     const data = args.query === "customers" ? await queryCustomers(args) : await getJson(path, Object.fromEntries(fields.map(field => [field, args[field]])));
     if (args.query === "metadata" && data && typeof data === "object") delete data.fdAccount;

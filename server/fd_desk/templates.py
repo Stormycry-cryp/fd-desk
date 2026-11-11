@@ -2,6 +2,7 @@ import copy
 import json
 import re
 from decimal import Decimal
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ from rapidfuzz import fuzz
 from . import analysis
 from .core import ApiProblem, Line, now, shift_week, validate_week, week_key
 from .engine import main_value, rate, ref
+from .record_analysis import cleanup_images
 
 Kind = Literal["official", "custom"]
 State = Literal["draft", "tried", "exported", "live", "retired"]
@@ -53,6 +55,7 @@ class Create(TemplateModel):
     target: str | None = None
     opportunityId: str | None = None
     clusterIds: list[str] = Field(default_factory=list)
+    caseIds: list[str] = Field(default_factory=list)
     content: Content = Field(default_factory=Content)
     write: bool
 
@@ -142,10 +145,12 @@ class Templates:
                 self.repo.save("template_migration", {"id": old["id"], "draft": old})
 
     def get(self, key):
-        return self.repo.get("template", key)
+        item = self.repo.get("template", key)
+        item.setdefault("sourceCases", [])
+        return item
 
     def list(self, line, kind=None, state=None, enterprise=None):
-        return [item for item in self.repo.find("template", line=line, state=state, enterprise=enterprise) if kind is None or item["kind"] == kind]
+        return [{**item, "sourceCases": item.get("sourceCases", [])} for item in self.repo.find("template", line=line, state=state, enterprise=enterprise) if kind is None or item["kind"] == kind]
 
     def opportunities(self, line, kind=None, state=None, enterprise=None):
         return [item for item in self.repo.find("opportunity", line=line, state=state, enterprise=enterprise) if kind is None or item["kind"] == kind]
@@ -169,6 +174,7 @@ class Templates:
         return members
 
     def create(self, body):
+        self.engine.refresh()
         target = self._target(body.kind, body.target)
         opportunity = self.repo.get("opportunity", body.opportunityId) if body.opportunityId else None
         if opportunity and (opportunity["line"] != body.line or opportunity["kind"] != body.kind or opportunity["target"] != target):
@@ -176,6 +182,10 @@ class Templates:
         ids = list(dict.fromkeys(body.clusterIds or (opportunity["clusterIds"] if opportunity else [])))
         members = self._clusters(body.line, ids)
         indices = list(dict.fromkeys(index for key in ids for index in members[key]))
+        source_cases = [self.context.cases.fact(key) for key in dict.fromkeys(body.caseIds)]
+        if any(fact.line != body.line or target and fact.enterprise != target["id"] for fact in source_cases):
+            raise ApiProblem(422, "invalid_source_case", "参考 Case 与模板产品线或目标企业不一致")
+        indices = list(dict.fromkeys(indices + [index for fact in source_cases for index in fact.indices]))
         part = self.engine.frame.loc[indices] if indices else None
         if target and part is not None and target["id"] not in set(part.enterprise_id):
             raise ApiProblem(422, "invalid_target", "目标企业不在来源簇中")
@@ -186,6 +196,7 @@ class Templates:
         evidence = opportunity["evidence"] if opportunity else {"uses": len(part) if part is not None else 0, "enterprises": int(part.enterprise_id.nunique()) if part is not None else 0, "downloadRate": rate(part) if part is not None and len(part) else None}
         item = {"id": uuid4().hex, "line": body.line, "kind": body.kind, "target": target, "scene": scene, "state": "draft", "current": version, "versions": [version], "cover": None, "origin": {"opportunityId": body.opportunityId, "clusterIds": ids, "uses": evidence.get("uses", 0), "enterprises": evidence.get("enterprises", 0), "downloadRate": evidence.get("downloadRate"), "originalPrompt": original}, "review": {"checks": [], "trial": None, "comment": None, "suggestedState": None}, "fdTemplateId": None, "exportedAt": None, "liveAt": None, "createdAt": stamp, "updatedAt": stamp}
         self.refresh_checks(item)
+        item["sourceCases"] = [self.context.cases.source(fact.id) for fact in source_cases]
         self._save(item)
         if opportunity:
             opportunity.update(state="adopted", draftId=item["id"])
@@ -422,6 +433,8 @@ class Templates:
         with self.store.lock:
             members = self._clusters(item["line"], item["origin"]["clusterIds"])
             indices = list(dict.fromkeys(index for key in item["origin"]["clusterIds"] for index in members[key]))
+            source_cases = [self.context.cases.fact(value["id"], value["unit"]) for value in item.get("sourceCases", [])]
+            indices = list(dict.fromkeys(indices + [index for fact in source_cases for index in fact.indices]))
             part = self.engine.frame.loc[indices].copy()
             if item["target"]:
                 part = part[part.enterprise_id == item["target"]["id"]]
@@ -429,15 +442,22 @@ class Templates:
             for downloaded in (True, False):
                 selected.extend(row for _, row in part[part.downloaded == downloaded].sort_values("created_at", ascending=False).head(5).iterrows())
             tasks = [self.engine.task(row) for row in selected]
+            source_case_rows = [self.context.cases.row(fact, detail=True) for fact in source_cases]
             profile = self.context.profiles.get(item["target"]["id"]) if item["target"] else None
-        images = []
-        image_dir = self.store.directory / "analysis" / job_id / "images"
+        images = {}
+        image_dir = (self.store.directory / "analysis" / job_id / "images").resolve()
         for row in [row for row in selected if row.inputs][:4]:
-            data = self.context.media.get(row.inputs[0], 480)
-            image_dir.mkdir(parents=True, exist_ok=True)
-            path = image_dir / f"{row.row_key}.webp"
-            path.write_bytes(data)
-            images.append({"task": row.row_key, "path": str(path.resolve())})
+            source = row.inputs[0]
+            if source not in images:
+                images[source] = {"task": row.row_key, "source": source, "path": str(image_dir / f"{row.row_key}.webp"), "references": []}
+            images[source]["references"].append({"rowKey": row.row_key, "kind": "inputs"})
+        if source_case_rows:
+            for image in self.context.case_analyses.images({"cases": source_case_rows}, image_dir):
+                source = image["source"]
+                if source in images:
+                    images[source]["references"].extend(image["references"])
+                else:
+                    images[source] = image
         trial_cases = []
         if request.get("kind") == "from_trial":
             trial = self.context.trials.get(request["runId"])
@@ -458,26 +478,37 @@ class Templates:
                         output["localPath"] = str(path)
                 if cells:
                     trial_cases.append({"task": case["task"], "cells": cells})
-        return {"template": item, "request": request, "variants": part.prompt.drop_duplicates().head(20).tolist(), "tasks": tasks, "images": images, "profile": profile, "trialCases": trial_cases}
+        complete = False
+        try:
+            for image in images.values():
+                image_dir.mkdir(parents=True, exist_ok=True)
+                Path(image["path"]).write_bytes(self.context.media.get(image["source"], 480))
+            complete = True
+            return {"template": item, "request": request, "variants": part.prompt.drop_duplicates().head(20).tolist(), "tasks": tasks, "images": list(images.values()), "profile": profile, "trialCases": trial_cases,
+                    "sourceCases": source_case_rows}
+        finally:
+            if not complete:
+                cleanup_images(image_dir.parent, image_dir)
 
     def _write(self, job_id, payload):
         with self.store.lock:
             if self.repo.find("template_write_applied", state=job_id):
                 return {"draftId": payload["template"]}
             item = self.get(payload["template"])
-        input_path = self.store.directory / "analysis" / job_id / "input.json"
-        inputs = json.loads(input_path.read_text()) if input_path.is_file() else self._write_inputs(item, payload["request"], job_id)
-        self.context.jobs.progress(job_id, 1, 3)
+        directory = (self.store.directory / "analysis" / job_id).resolve()
+        input_path = directory / "input.json"
         try:
+            inputs = json.loads(input_path.read_text()) if input_path.is_file() else self._write_inputs(item, payload["request"], job_id)
+            if not (directory / "answer.json").is_file():
+                for image in inputs["images"]:
+                    path = Path(image["path"])
+                    if not path.is_file():
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(self.context.media.get(image["source"], 480))
+            self.context.jobs.progress(job_id, 1, 3)
             result = self.context.model.run("template_write", inputs, WriteResult, job_id)
         finally:
-            image_root = (self.store.directory / "analysis" / job_id / "images").resolve()
-            for image in inputs["images"]:
-                path = image_root / (image["task"] + ".webp")
-                if path.is_file() and not path.is_symlink():
-                    path.unlink()
-            if image_root.is_dir() and not any(image_root.iterdir()):
-                image_root.rmdir()
+            cleanup_images(directory, directory / "images")
         self.context.jobs.progress(job_id, 2, 3)
         if not self._numbers(result.model_dump_json()) <= self._numbers(json.dumps(inputs, ensure_ascii=False)):
             self.context.model.discarded(job_id, [{"reason": "生成内容包含输入中不存在的数字"}])

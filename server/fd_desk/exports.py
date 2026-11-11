@@ -12,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import analysis, views
 from .core import LINES, ApiProblem, dump, now, validate_week
 
-KINDS = ("roster", "annotations", "movements", "templates_official", "templates_custom", "opportunities", "monitor", "followups", "analysis_matrix", "analysis_failures", "tasks", "records")
-ExportKind = Literal["roster", "annotations", "movements", "templates_official", "templates_custom", "opportunities", "monitor", "followups", "analysis_matrix", "analysis_failures", "tasks", "records"]
+KINDS = ("roster", "annotations", "movements", "templates_official", "templates_custom", "opportunities", "monitor", "followups", "analysis_matrix", "analysis_failures", "tasks", "records", "cases")
+ExportKind = Literal["roster", "annotations", "movements", "templates_official", "templates_custom", "opportunities", "monitor", "followups", "analysis_matrix", "analysis_failures", "tasks", "records", "cases"]
 MAX_BUNDLE_BYTES = 250 * 1024 * 1024
 
 
@@ -80,6 +80,8 @@ class Exports:
 
     def render(self, kind, params):
         context = self.context
+        if kind == "cases":
+            return context.cases.render_export(params), []
         if kind == "records":
             return context.records.render_export(params), []
         line, week = self.options(params)

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import tempfile
 from contextlib import asynccontextmanager
@@ -77,6 +78,7 @@ def create_app(directory=None):
     lock = RLock()
     @asynccontextmanager
     async def lifespan(app):
+        await asyncio.to_thread(context.cases.refresh)
         context.start()
         try:
             yield

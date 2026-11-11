@@ -5,7 +5,8 @@ from uuid import uuid4
 
 from .core import ApiProblem, digest, now
 
-MODEL_KINDS = {"profiles", "movement", "opportunities", "draft_write", "finding_recheck", "record_analysis"}
+DAILY_LIMIT_KINDS = {"profiles", "movement", "opportunities", "draft_write", "finding_recheck", "record_analysis"}
+MODEL_KINDS = DAILY_LIMIT_KINDS | {"case_analysis"}
 
 
 class Jobs:
@@ -39,9 +40,9 @@ class Jobs:
                     found = conn.execute("SELECT value FROM rework_objects WHERE kind='job' AND json_extract(value,'$.signature')=? AND state IN ('queued','running','done') LIMIT 1", (signature,)).fetchone()
                     if found:
                         return json.loads(found[0])["job"]
-                marks = ",".join("?" for _ in MODEL_KINDS)
-                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(MODEL_KINDS))).fetchone()[0]
-            if kind in MODEL_KINDS and used >= limit:
+                marks = ",".join("?" for _ in DAILY_LIMIT_KINDS)
+                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(DAILY_LIMIT_KINDS))).fetchone()[0]
+            if kind in DAILY_LIMIT_KINDS and used >= limit:
                 raise ApiProblem(409, "analysis_daily_limit", f"今日模型任务已达到{limit}项上限")
             key = job_id or uuid4().hex
             job = {"id": key, "kind": kind, "state": "queued", "progress": {"done": 0, "total": total},
