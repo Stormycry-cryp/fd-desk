@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/
 import type { AlertKind, EnterpriseDetail, Line, Roster, Touch, TouchBoard, TouchSlot } from "@spec/contract"
 import { call, RequestError, type CallOpts, type Res } from "./client"
 import type { Api } from "@spec/contract"
-import type { ApiNext } from "@spec/contract.next"
+import type { ApiLegacy } from "./legacy"
 
-type Key = keyof (Api & ApiNext)
+type Key = keyof (Api & ApiLegacy)
 
 const q = <K extends Key>(key: K, opts: CallOpts<K> = {}, enabled = true) => ({
   queryKey: [key, opts.params ?? null, opts.query ?? null] as QueryKey,

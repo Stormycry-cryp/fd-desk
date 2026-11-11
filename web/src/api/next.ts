@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react"
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
 import type { Line, Pool } from "@spec/contract"
-import type { Annotation, AnnotationKind, ApiNext, Job, JobKind, OpportunityState, Profile, TagDimension, TemplateKind, TemplateState, TrialRun } from "@spec/contract.next"
+import type { Annotation, AnnotationKind, ApiNext, Job, JobKind, OpportunityState, Profile, TagDimension, TemplateKind, TemplateState, TrialRun } from "@spec/contract"
 import { call, RequestError, type CallOpts } from "./client"
 import { toast } from "../ui/overlays"
 

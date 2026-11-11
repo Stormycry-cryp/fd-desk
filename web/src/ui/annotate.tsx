@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import type { Annotation, AnnotationKind } from "@spec/contract.next"
+import type { Annotation, AnnotationKind } from "@spec/contract"
 import { useAnnotate } from "../api/next"
 import { time } from "../lib/format"
 import { Button, IconButton, Kbd, Segmented, TextArea, cx } from "./controls"

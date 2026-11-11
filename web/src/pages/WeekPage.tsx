@@ -77,7 +77,7 @@ const Hero = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
           ) : (
             <Stat size="lg" label="稳定使用企业" value="—" foot={<span>本周未结束，层级在整周后计算</span>} />
           )}
-          {o.levels && <LevelBar levels={o.levels} onPick={(l) => navigate({ page: "customers", level: l })} />}
+          {o.levels && <LevelBar levels={o.levels} onPick={(l) => navigate({ page: "customers", level: [l] })} />}
           <div className="row" style={{ gap: 16, marginTop: "auto" }}>
             <Stat size="xs" label="活跃企业" value={num(o.activeEnterprises.value)} />
             <Stat size="xs" label="活跃账号" value={num(o.users.value)} />
@@ -268,7 +268,7 @@ const Movers = ({ o }: { o: Overview }) => {
   const [tab, setTab] = useState<(typeof moverTabs)[number]>("falling")
   const list: Mover[] = o.movers[tab]
   return (
-    <Card className="span-4 movers" flush title="变动" actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate({ page: "customers", movement: tab === "falling" ? "drop" : tab === "rising" ? "surge" : tab })}>全部</Button>}>
+    <Card className="span-4 movers" flush title="变动" actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate({ page: "customers", movement: [tab === "falling" ? "drop" : tab === "rising" ? "surge" : tab] })}>全部</Button>}>
       <Tabs value={tab} onChange={setTab} options={moverTabs.map((k) => ({ value: k, label: moverName[k], count: o.movers[k].length || undefined }))} />
       <div style={{ padding: "4px 0 8px" }}>
         {list.length ? (
@@ -308,7 +308,7 @@ const Alerts = ({ o, line }: { o: Overview; line: Line }) => {
           [...o.alerts]
             .sort((a, b) => b.severity - a.severity || b.count - a.count)
             .map((a) => (
-              <div key={a.kind} className="alert-row" onClick={() => navigate({ page: "customers", alert: a.kind as AlertKind })}>
+              <div key={a.kind} className="alert-row" onClick={() => navigate({ page: "customers", alert: [a.kind as AlertKind] })}>
                 <Sev s={a.severity} />
                 <span className="name">{alertName[a.kind]}</span>
                 <span className="count">{a.count}</span>

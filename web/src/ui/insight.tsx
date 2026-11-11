@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import type { Confidence, Evidence, JobState, Locator, ProfileTag, TagDimension } from "@spec/contract.next"
+import type { Confidence, Evidence, JobState, Locator, ProfileTag, TagDimension } from "@spec/contract"
 import { locate } from "../lib/locate"
 import { cx } from "./controls"
 import { Icon } from "./icons"

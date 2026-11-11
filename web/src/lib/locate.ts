@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import type { Locator } from "@spec/contract.next"
+import type { Locator } from "@spec/contract"
 import { navigate, useRoute, type EntTab, type PageKey } from "./route"
 
 const pageMap: Record<Locator["page"], PageKey> = {
@@ -25,9 +25,9 @@ export const locate = (l: Locator) => {
     ...(l.section ? { section: l.section } : { section: null }),
     ...(l.draft ? { tpl: l.draft, pane: "drafts" as const } : {}),
     ...(l.run ? { run: l.run } : {}),
-    ...(f.level ? { level: f.level as never } : {}),
-    ...(f.movement ? { movement: f.movement as never } : {}),
-    ...(f.alert ? { alert: f.alert as never } : {}),
+    ...(f.level ? { level: f.level.split(",") as never } : {}),
+    ...(f.movement ? { movement: f.movement.split(",") as never } : {}),
+    ...(f.alert ? { alert: f.alert.split(",") as never } : {}),
     ...(f.pool ? { pool: f.pool as never } : {}),
     ...(f.tags ? { tags: f.tags.split(",") } : {}),
   })

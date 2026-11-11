@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react"
-import type { AskContext } from "@spec/contract.next"
+import type { AskContext } from "@spec/contract"
 import { getRoute } from "./route"
 
 type Selection = AskContext["selection"]
@@ -26,12 +26,12 @@ export const snapshot = (week: string | null): AskContext => {
   const r = getRoute()
   const filters: Record<string, string> = {}
   if (r.pool !== "all") filters.pool = r.pool
-  if (r.level) filters.level = r.level
-  if (r.movement) filters.movement = r.movement
-  if (r.alert) filters.alert = r.alert
+  if (r.level.length) filters.level = r.level.join(",")
+  if (r.movement.length) filters.movement = r.movement.join(",")
+  if (r.alert.length) filters.alert = r.alert.join(",")
   if (r.q) filters.q = r.q
   if (r.tags.length) filters.tags = r.tags.join(",")
-  if (r.noted) filters.noted = r.noted
+  if (r.noted.length) filters.noted = r.noted.join(",")
   if (r.page === "templates") Object.assign(filters, { kind: r.kind, pane: r.pane })
   const page = r.page === "touches" ? "followups" : r.page === "enterprise" ? "enterprise" : r.page
   return {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import type { Annotation } from "@spec/contract.next"
+import type { Annotation } from "@spec/contract"
 import { Card } from "../../ui/display"
 import { AnnotationRail, AnnotationScope, ComposerPopover } from "../../ui/annotate"
 import { TagPicker } from "../../ui/insight"

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { AlertKind, Level, Line, Movement, Pool, RosterRow } from "@spec/contract"
-import type { RosterExtra, TagDimension } from "@spec/contract.next"
+import type { RosterExtra, TagDimension } from "@spec/contract"
 import { useAnalyzeMovement, useMovementPoll, useRosterExtra, useTags } from "../api/next"
 import { tagDimName, tagOrder, TagChip, JobProgress } from "../ui/insight"
 import { useRoster } from "../api/hooks"
-import { url } from "../api/client"
+import { call, url } from "../api/client"
+import { useQueries } from "@tanstack/react-query"
 import { useCtx } from "../lib/ctx"
 import { alertName, levelName, levelOrder, lineName, movementName, poolName, poolOrder } from "../lib/labels"
 import { navigate } from "../lib/route"
@@ -51,7 +52,9 @@ export const exportFile = async (href: string, name: string) => {
 export const CustomersPage = () => {
   const { line, week, route } = useCtx()
   const [models, setModels] = useState<string[]>([])
-  const q = useRoster(line, week, models[0])
+  const q = useRoster(line, week)
+  const modelQs = useQueries({ queries: models.map((m) => ({ queryKey: ["GET /api/enterprises", null, { line, week, model: m }], queryFn: () => call("GET /api/enterprises", { query: { line, week: week!, model: m } }), enabled: !!week, staleTime: 30000 })) })
+  const modelSets = useMemo(() => new Map(models.map((m, i) => [m, new Set((modelQs[i]?.data?.rows ?? []).map((r) => r.enterprise.id))])), [models, modelQs.map((x) => x.dataUpdatedAt).join()])
   const extra = useRosterExtra(line, week)
   const tagsQ = useTags(line)
   const analyze = useAnalyzeMovement()
@@ -68,18 +71,18 @@ export const CustomersPage = () => {
   const pending = useMemo(() => (extra.data ?? []).filter((x) => x.movement && (x.movement.state === "queued" || x.movement.state === "running")).map((x) => x.movement!.id), [extra.data])
   useMovementPoll(pending)
   const tagSel = useMemo(() => {
-    const m = new Map<TagDimension, string>()
+    const m = new Map<TagDimension, string[]>()
     route.tags.forEach((t) => {
       const [d, v] = t.split(":")
-      if (d && v) m.set(d as TagDimension, v)
+      if (d && v) m.set(d as TagDimension, [...(m.get(d as TagDimension) ?? []), v])
     })
     return m
   }, [route.tags])
-  const setTag = (d: TagDimension, v: string | null) => {
+  const setTag = (d: TagDimension, vs: string[]) => {
     const m = new Map(tagSel)
-    if (v) m.set(d, v)
+    if (vs.length) m.set(d, vs)
     else m.delete(d)
-    navigate({ tags: [...m].map(([k, x]) => `${k}:${x}`) }, { replace: true })
+    navigate({ tags: [...m].flatMap(([k, xs]) => xs.map((x) => `${k}:${x}`)) }, { replace: true })
   }
   const weekAgo = Date.now() - 7 * 86400000
   const intents = useMemo(() => {
@@ -100,12 +103,13 @@ export const CustomersPage = () => {
     let xs = rows.filter(
       (r) =>
         (route.pool === "all" || r.pool === route.pool) &&
-        (!route.level || r.level === route.level) &&
-        (!route.movement || r.movement === route.movement) &&
-        (!route.alert || r.alerts.includes(route.alert)) &&
+        (!route.level.length || (!!r.level && route.level.includes(r.level))) &&
+        (!route.movement.length || route.movement.includes(r.movement)) &&
+        (!route.alert.length || route.alert.some((a) => r.alerts.includes(a))) &&
+        (!models.length || models.some((m) => modelSets.get(m)?.has(r.enterprise.id))) &&
         (!intent.length || intent.includes(r.inspiration?.topIntent ?? r.video?.topMode ?? "")) &&
-        [...tagSel].every(([d, v]) => ex.get(r.enterprise.id)?.tags.some((t) => t.dimension === d && t.value === v)) &&
-        (!route.noted || (route.noted === "any" ? (ex.get(r.enterprise.id)?.annotationCount ?? 0) > 0 : !!ex.get(r.enterprise.id)?.lastAnnotation && new Date(ex.get(r.enterprise.id)!.lastAnnotation!.at).getTime() >= weekAgo)) &&
+        [...tagSel].every(([d, vs]) => ex.get(r.enterprise.id)?.tags.some((t) => t.dimension === d && vs.includes(t.value))) &&
+        (!route.noted.length || route.noted.some((n) => (n === "any" ? (ex.get(r.enterprise.id)?.annotationCount ?? 0) > 0 : !!ex.get(r.enterprise.id)?.lastAnnotation && new Date(ex.get(r.enterprise.id)!.lastAnnotation!.at).getTime() >= weekAgo))) &&
         (!s || r.enterprise.name.toLowerCase().includes(s) || (ex.get(r.enterprise.id)?.headline ?? "").toLowerCase().includes(s)),
     )
     const f = sorters[sort.key]
@@ -115,7 +119,7 @@ export const CustomersPage = () => {
       return (typeof x === "string" ? x.localeCompare(y as string, "zh") : (x as number) - (y as number)) * sort.dir
     })
     return xs
-  }, [rows, route.pool, route.level, route.movement, route.alert, intent, tagSel, route.noted, ex, search, sort])
+  }, [rows, route.pool, route.level, route.movement, route.alert, intent, models, modelSets, tagSel, route.noted, ex, search, sort])
   useEffect(() => setFocus(-1), [filtered.length, route.pool])
   useEffect(() => {
     if (focus >= 0) tbody.current?.children[focus]?.scrollIntoView({ block: "nearest" })
@@ -162,7 +166,7 @@ export const CustomersPage = () => {
   const pc = q.data?.poolCounts
   const insp = line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
-  const anyFilter = route.level || route.movement || route.alert || intent.length || models.length || search || tagSel.size || route.noted
+  const anyFilter = route.level.length || route.movement.length || route.alert.length || intent.length || models.length || search || tagSel.size || route.noted.length
   const tagCount = (d: TagDimension, v: string) => (extra.data ?? []).filter((x) => x.tags.some((t) => t.dimension === d && t.value === v)).length
   const noteAny = (extra.data ?? []).filter((x) => x.annotationCount > 0).length
   const noteRecent = (extra.data ?? []).filter((x) => x.lastAnnotation && new Date(x.lastAnnotation.at).getTime() >= weekAgo).length
@@ -206,22 +210,22 @@ export const CustomersPage = () => {
       />
       <div className="toolbar">
         <Input icon="search" size="sm" quiet placeholder="企业或档案" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")} style={{ width: 200 }} />
-        <FilterChip label="层级" value={route.level ? [route.level] : []} onChange={(v) => navigate({ level: (v[0] as Level) ?? null }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
-        <FilterChip label="变动" value={route.movement ? [route.movement] : []} onChange={(v) => navigate({ movement: (v[0] as Movement) ?? null }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
-        <FilterChip label="预警" value={route.alert ? [route.alert] : []} onChange={(v) => navigate({ alert: (v[0] as AlertKind) ?? null }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
+        <FilterChip label="层级" multi value={route.level} onChange={(v) => navigate({ level: v as Level[] }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
+        <FilterChip label="变动" multi value={route.movement} onChange={(v) => navigate({ movement: v as Movement[] }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
+        <FilterChip label="预警" multi value={route.alert} onChange={(v) => navigate({ alert: v as AlertKind[] }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
         <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={setIntent} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
-        <FilterChip label="模型" value={models} onChange={setModels} options={(q.data?.models ?? []).map(model => ({ value: model, label: model }))} />
+        <FilterChip label="模型" multi search value={models} onChange={setModels} options={(q.data?.models ?? []).map((model) => ({ value: model, label: model, count: modelSets.get(model)?.size }))} />
         {tagOrder.map((d) => {
           const opts = (tagsQ.data?.find((t) => t.dimension === d)?.values ?? []).filter((x) => x.count > 0)
-          return opts.length ? <FilterChip key={d} label={tagDimName[d]} value={tagSel.has(d) ? [tagSel.get(d)!] : []} onChange={(v) => setTag(d, v[0] ?? null)} options={opts.map((x) => ({ value: x.value, label: x.value, count: tagCount(d, x.value) }))} /> : null
+          return opts.length ? <FilterChip key={d} label={tagDimName[d]} multi value={tagSel.get(d) ?? []} onChange={(v) => setTag(d, v)} options={opts.map((x) => ({ value: x.value, label: x.value, count: tagCount(d, x.value) }))} /> : null
         })}
-        <FilterChip label="批注" value={route.noted ? [route.noted] : []} onChange={(v) => navigate({ noted: (v[0] as "any" | "recent") ?? null }, { replace: true })} options={[{ value: "any", label: "有批注", count: noteAny }, { value: "recent", label: "近 7 天有跟进", count: noteRecent }]} />
+        <FilterChip label="批注" multi value={route.noted} onChange={(v) => navigate({ noted: v as ("any" | "recent")[] }, { replace: true })} options={[{ value: "any", label: "有批注", count: noteAny }, { value: "recent", label: "近 7 天有跟进", count: noteRecent }]} />
         {anyFilter && (
           <Button
             size="sm"
             variant="ghost"
             onClick={() => {
-              navigate({ level: null, movement: null, alert: null, owner: null, tags: [], noted: null }, { replace: true })
+              navigate({ level: [], movement: [], alert: [], owner: null, tags: [], noted: [] }, { replace: true })
               setIntent([])
               setModels([])
               setSearch("")

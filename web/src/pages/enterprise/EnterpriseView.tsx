@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import type { Annotation, Profile, Scope } from "@spec/contract.next"
+import type { Annotation, Profile, Scope } from "@spec/contract"
 import { useAnnotations, useProfile, useSetHeadline, useSetTag } from "../../api/next"
 import { useSectionFocus } from "../../lib/locate"
 import { AnnotationRail, AnnotationScope, AnnotationTimeline, Annotatable, ComposerPopover } from "../../ui/annotate"

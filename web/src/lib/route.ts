@@ -14,16 +14,16 @@ export interface Route {
   excluded: boolean
   ent: string | null
   pool: Pool | "all"
-  level: Level | null
-  movement: Movement | null
-  alert: AlertKind | null
+  level: Level[]
+  movement: Movement[]
+  alert: AlertKind[]
   owner: string | null
   q: string
   tab: EntTab
   scope: EntScope | null
   section: string | null
   tags: string[]
-  noted: "any" | "recent" | null
+  noted: ("any" | "recent")[]
   kind: TplKind
   pane: TplPane
   tpl: string | null
@@ -31,6 +31,8 @@ export interface Route {
 }
 
 const pages: PageKey[] = ["week", "customers", "touches", "templates", "analysis", "data", "report", "enterprise", "playground", "export"]
+
+const list = (v: string | null) => (v ? v.split(",").filter(Boolean) : [])
 
 const read = (): Route => {
   const u = new URL(location.href)
@@ -44,16 +46,16 @@ const read = (): Route => {
     excluded: s.get("ex") === "1",
     ent: page === "enterprise" ? seg[1] ?? null : s.get("ent"),
     pool: (s.get("pool") as Pool) || "all",
-    level: (s.get("level") as Level) || null,
-    movement: (s.get("mv") as Movement) || null,
-    alert: (s.get("alert") as AlertKind) || null,
+    level: list(s.get("level")) as Level[],
+    movement: list(s.get("mv")) as Movement[],
+    alert: list(s.get("alert")) as AlertKind[],
     owner: s.get("owner"),
     q: s.get("q") ?? "",
     tab: (["profile", "data", "tasks", "notes"].includes(s.get("tab") ?? "") ? s.get("tab") : "profile") as EntTab,
     scope: (["all", "inspiration", "video"].includes(s.get("scope") ?? "") ? s.get("scope") : null) as EntScope | null,
     section: s.get("sec"),
     tags: s.get("tags")?.split(",").filter(Boolean) ?? [],
-    noted: (s.get("noted") as "any" | "recent") || null,
+    noted: list(s.get("noted")) as ("any" | "recent")[],
     kind: s.get("kind") === "custom" ? "custom" : "official",
     pane: (["opportunities", "drafts", "live"].includes(s.get("pane") ?? "") ? s.get("pane") : "opportunities") as TplPane,
     tpl: page === "playground" ? seg[1] ?? s.get("tpl") : s.get("tpl"),
@@ -71,16 +73,16 @@ const write = (r: Route, replace: boolean) => {
   if (r.excluded) s.set("ex", "1")
   if (r.ent && r.page !== "enterprise") s.set("ent", r.ent)
   if (r.pool !== "all") s.set("pool", r.pool)
-  if (r.level) s.set("level", r.level)
-  if (r.movement) s.set("mv", r.movement)
-  if (r.alert) s.set("alert", r.alert)
+  if (r.level.length) s.set("level", r.level.join(","))
+  if (r.movement.length) s.set("mv", r.movement.join(","))
+  if (r.alert.length) s.set("alert", r.alert.join(","))
   if (r.owner) s.set("owner", r.owner)
   if (r.q) s.set("q", r.q)
   if (r.tab !== "profile" && (r.ent || r.page === "enterprise")) s.set("tab", r.tab)
   if (r.scope && (r.ent || r.page === "enterprise")) s.set("scope", r.scope)
   if (r.section) s.set("sec", r.section)
   if (r.tags.length) s.set("tags", r.tags.join(","))
-  if (r.noted) s.set("noted", r.noted)
+  if (r.noted.length) s.set("noted", r.noted.join(","))
   if (r.page === "templates" || r.page === "playground") {
     if (r.kind !== "official") s.set("kind", r.kind)
     if (r.pane !== "opportunities" && r.page === "templates") s.set("pane", r.pane)
@@ -117,7 +119,7 @@ export const navigate = (patch: Partial<Route>, opts: { replace?: boolean } = {}
   const base = entChanged && patch.tab === undefined ? { ...next, tab: "profile" as EntTab, section: patch.section ?? null } : next
   write(
     filtersReset
-      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? null, movement: patch.movement ?? null, alert: patch.alert ?? null, owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? null, section: patch.section ?? null, run: patch.run ?? null, tpl: patch.tpl ?? (patch.page === "playground" ? current.tpl : null) }
+      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, tpl: patch.tpl ?? (patch.page === "playground" ? current.tpl : null) }
       : base,
     opts.replace ?? false,
   )

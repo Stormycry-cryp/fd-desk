@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react"
 import type { Line } from "@spec/contract"
-import type { InsightKey, Profile, ProfileFacts, ProfileInsight, RhythmKind, Scope } from "@spec/contract.next"
+import type { InsightKey, Profile, ProfileFacts, ProfileInsight, RhythmKind, Scope } from "@spec/contract"
 import { useDaily } from "../../api/hooks"
 import { useRefreshProfile } from "../../api/next"
 import { useCtx } from "../../lib/ctx"

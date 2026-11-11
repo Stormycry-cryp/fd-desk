@@ -1,4 +1,4 @@
-import type { Profile, ProfileFacts } from "@spec/contract.next"
+import type { Profile, ProfileFacts } from "@spec/contract"
 
 const hours = [
   [0, 0, 0, 0, 0, 0, 0, 0, 7, 20, 65, 39, 1, 26, 92, 75, 55, 67, 43, 16, 3, 0, 0, 0],
