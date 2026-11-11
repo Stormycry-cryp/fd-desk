@@ -13,7 +13,8 @@ import { Empty, ErrorState, Skel, SourceTag, Stepper, Thumb } from "../../ui/dis
 import { Icon } from "../../ui/icons"
 import { JobProgress } from "../../ui/insight"
 import { DiffText, PromptEditor, VersionList } from "../../ui/prompt"
-import { Menu, Tooltip, toast } from "../../ui/overlays"
+import { Menu, Select, Tooltip, toast } from "../../ui/overlays"
+import { useRoster } from "../../api/hooks"
 import { useKey } from "../../lib/useKey"
 import { checkName, kindName, reviseName, stateName, stateOrder } from "./names"
 
@@ -148,7 +149,7 @@ const Detail = ({ t }: { t: Template }) => {
         )}
       </div>
       <div className="tpl-detail">
-        <ContentCol c={c} setC={setC} />
+        <ContentCol c={c} setC={setC} line={t.line} />
         <AiCol t={t} dirty={dirty} />
         <ReviewCol t={t} c={c} onCover={() => navigate({ page: "playground", tpl: t.id, run: t.review.trial?.runId ?? null })} />
       </div>
@@ -166,7 +167,23 @@ const Field = ({ label, children, hint }: { label: string; children: React.React
   </div>
 )
 
-const ContentCol = ({ c, setC }: { c: TemplateContent; setC: (c: TemplateContent) => void }) => {
+const NONE = "__none"
+const ratios: Record<"inspiration" | "video", string[]> = { inspiration: ["3:4", "auto", "1:1", "2:3", "4:3", "3:2", "16:9", "9:16", "4:5", "5:4", "21:9"], video: ["3:4", "9:16", "16:9", "1:1", "4:3"] }
+const resolutions = ["2K", "4K", "1K"]
+const durations = ["5", "8", "10", "12", "15"]
+const withCur = (xs: string[], cur: string | null) => (cur && !xs.includes(cur) ? [cur, ...xs] : xs)
+
+const RatioIcon = ({ r }: { r: string }) => {
+  if (r === "auto") return <span className="ratio-ic auto" />
+  const [w, h] = r.split(":").map(Number)
+  const k = 14 / Math.max(w, h)
+  return <span className="ratio-ic" style={{ width: Math.round(w * k), height: Math.round(h * k) }} />
+}
+
+const ContentCol = ({ c, setC, line }: { c: TemplateContent; setC: (c: TemplateContent) => void; line: "inspiration" | "video" }) => {
+  const { week } = useCtx()
+  const roster = useRoster(line, week)
+  const models = roster.data?.models ?? []
   const set = <K extends keyof TemplateContent>(k: K, v: TemplateContent[K]) => setC({ ...c, [k]: v })
   const used = useMemo(() => {
     const s = new Set<string>()
@@ -201,15 +218,15 @@ const ContentCol = ({ c, setC }: { c: TemplateContent; setC: (c: TemplateContent
       <Field label="可变项" hint="可选的文字">
         <VarTable xs={c.variables} onChange={(v) => set("variables", v)} />
       </Field>
-      <div className="tf-grid">
+      <div className="tf-grid spec">
         <Field label="推荐模型">
-          <Input value={c.model ?? ""} onChange={(e) => set("model", e.target.value || null)} placeholder="—" />
+          <Select<string> value={c.model ?? NONE} onChange={(v) => set("model", v === NONE ? null : v)} search width="100%" popWidth={280} options={[{ value: NONE, label: <span className="faint">不指定</span>, text: "不指定" }, ...withCur(models, c.model).map((m) => ({ value: m, label: m }))]} />
         </Field>
         <Field label="比例">
-          <Input value={c.ratio ?? ""} onChange={(e) => set("ratio", e.target.value || null)} placeholder="—" />
+          <Select<string> value={c.ratio ?? NONE} onChange={(v) => set("ratio", v === NONE ? null : v)} width="100%" search={false} renderValue={(o) => <span className="row" style={{ gap: 8 }}>{o.lead}{o.label}</span>} options={[{ value: NONE, label: <span className="faint">不指定</span>, text: "不指定" }, ...withCur(ratios[line], c.ratio).map((r) => ({ value: r, label: r === "auto" ? "自动" : r, text: r === "auto" ? "自动" : r, lead: <RatioIcon r={r} /> }))]} />
         </Field>
-        <Field label="分辨率">
-          <Input value={c.resolution ?? ""} onChange={(e) => set("resolution", e.target.value || null)} placeholder="—" />
+        <Field label={line === "video" ? "时长" : "分辨率"}>
+          <Select<string> value={c.resolution ?? NONE} onChange={(v) => set("resolution", v === NONE ? null : v)} width="100%" search={false} options={[{ value: NONE, label: <span className="faint">不指定</span>, text: "不指定" }, ...withCur(line === "video" ? durations : resolutions, c.resolution).map((r) => ({ value: r, label: line === "video" ? `${r} 秒` : r }))]} />
         </Field>
       </div>
       <div className="tf-grid two">
@@ -307,10 +324,13 @@ const AiCol = ({ t, dirty }: { t: Template; dirty: boolean }) => {
             ))}
           </div>
           <div className="ai-ins">
-            <TextArea value={ins} onChange={(e) => setIns(e.target.value)} placeholder="或者直接说要怎么改，⌘↵ 发送" style={{ minHeight: 60 }} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && ins.trim() && (e.preventDefault(), revise("custom"))} />
-            <Button size="sm" variant="primary" icon="wand" disabled={!ins.trim()} onClick={() => revise("custom")}>
-              修改
-            </Button>
+            <textarea value={ins} rows={2} onChange={(e) => setIns(e.target.value)} placeholder="或者直接说要怎么改" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && ins.trim() && (e.preventDefault(), revise("custom"))} />
+            <div className="ai-ins-f">
+              <span className="faint">⌘↵ 发送</span>
+              <Button size="xs" variant="primary" icon="wand" disabled={!ins.trim()} onClick={() => revise("custom")}>
+                修改
+              </Button>
+            </div>
           </div>
         </>
       )}

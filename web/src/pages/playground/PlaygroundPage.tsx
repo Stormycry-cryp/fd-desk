@@ -107,11 +107,14 @@ const Setup = ({ title, back, budget, seed, onCreated, onCancel }: { title: stri
     return xs.filter((x, i) => xs.findIndex((y) => y.rowKey === x.rowKey) === i)
   }, [cands.data, seedTask.data])
   const max = budget?.maxCases ?? 12
-  const [sel, setSel] = useState<string[]>([])
-  useEffect(() => {
-    if (!sel.length && pool.length) setSel(pool.slice(0, Math.min(6, max)).map((x) => x.rowKey))
-  }, [pool.length])
   const models = budget?.models ?? []
+  const fdOk = useMemo(() => new Set(models.flatMap((m) => [m.id, ...m.fdModels])), [models])
+  const ok = (x: Task) => !x.model || fdOk.has(x.model)
+  const [sel, setSel] = useState<string[]>([])
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    if (!sel.length && pool.length) setSel(pool.filter(ok).slice(0, Math.min(6, max)).map((x) => x.rowKey))
+  }, [pool.length, fdOk])
   const defModel = models.find((m) => t?.current.content.model && m.fdModels.includes(t.current.content.model))?.id ?? models[0]?.id ?? ""
   const [arms, setArms] = useState<ArmDraft[]>([])
   useEffect(() => {
@@ -125,22 +128,33 @@ const Setup = ({ title, back, budget, seed, onCreated, onCancel }: { title: stri
   const [busy, setBusy] = useState(false)
   const run = async () => {
     setBusy(true)
+    setErr(null)
     try {
       const r = await call("POST /api/trials", { body: { templateId: route.tpl ?? undefined, taskRowKeys: sel, arms } })
       onCreated(r)
     } catch (e) {
-      toast(errorText(e), { tone: "error" })
+      setErr(errorText(e))
     } finally {
       setBusy(false)
     }
   }
-  const toggle = (k: string) => setSel((s) => (s.includes(k) ? s.filter((x) => x !== k) : s.length >= max ? s : [...s, k]))
+  const toggle = (k: string) => {
+    setErr(null)
+    setSel((s) => (s.includes(k) ? s.filter((x) => x !== k) : s.length >= max ? s : [...s, k]))
+  }
+  const runnable = pool.filter(ok).length
   return (
     <div className="page wide">
       <TopBar title={title} back={back} sub={<span>新建试验</span>}>
+        {err && (
+          <span className="pg-err">
+            <Icon name="alert" size="xs" />
+            {err}
+          </span>
+        )}
         {budget && <BudgetPill b={budget} need={need} />}
         {onCancel && <Button onClick={onCancel}>取消</Button>}
-        <Tooltip content={need > left ? "额度不够，减少用例或写法" : !models.length ? "没有可用的模型" : `${sel.length} 个用例 × ${arms.length} 种写法`}>
+        <Tooltip content={!sel.length ? "先选用例" : need > left ? "额度不够，减少用例或写法" : !models.length ? "没有可用的模型" : `${sel.length} 个用例 × ${arms.length} 种写法`}>
           <Button variant="primary" icon="play" loading={busy} disabled={!sel.length || !arms.length || need > left || !arms.every((a) => a.prompt.trim() && a.model)} onClick={run}>
             运行
           </Button>
@@ -154,12 +168,12 @@ const Setup = ({ title, back, budget, seed, onCreated, onCancel }: { title: stri
               已选 {sel.length}/{max}
             </span>
             <span className="spacer" />
-            <Button size="xs" variant="ghost" icon="refresh" onClick={() => setSel([...pool].sort(() => Math.random() - 0.5).slice(0, Math.min(6, max)).map((x) => x.rowKey))}>
+            <Button size="xs" variant="ghost" icon="refresh" onClick={() => setSel([...pool].filter(ok).sort(() => Math.random() - 0.5).slice(0, Math.min(6, max)).map((x) => x.rowKey))}>
               换一批
             </Button>
           </h3>
           {cands.isLoading ? (
-            <div className="pg-cands">
+            <div className="pg-cands loading">
               {Array.from({ length: 8 }, (_, i) => (
                 <Skel key={i} h={150} r={10} />
               ))}
@@ -167,11 +181,21 @@ const Setup = ({ title, back, budget, seed, onCreated, onCancel }: { title: stri
           ) : cands.error && !pool.length ? (
             <ErrorState error={cands.error} retry={() => cands.refetch()} />
           ) : pool.length ? (
-            <div className="pg-cands">
-              {pool.map((x) => (
-                <CandCard key={x.rowKey} t={x} on={sel.includes(x.rowKey)} toggle={() => toggle(x.rowKey)} />
-              ))}
-            </div>
+            <>
+              {runnable < pool.length && (
+                <div className="pg-note">
+                  <Icon name="info" size="xs" />
+                  <span>
+                    {pool.length - runnable} 个用例原来用的模型（如 {[...new Set(pool.filter((x) => !ok(x)).map((x) => x.model))].slice(0, 2).join("、")}）在网关里没有可对照的模型，结果不能算还原，已置灰
+                  </span>
+                </div>
+              )}
+              <div className="pg-cands">
+                {[...pool].sort((a, b) => Number(ok(b)) - Number(ok(a))).map((x) => (
+                  <CandCard key={x.rowKey} t={x} on={sel.includes(x.rowKey)} off={!ok(x)} toggle={() => ok(x) && toggle(x.rowKey)} />
+                ))}
+              </div>
+            </>
           ) : (
             <Empty icon="image" title="没有可用的真实输入" compact />
           )}
@@ -207,8 +231,8 @@ const Setup = ({ title, back, budget, seed, onCreated, onCancel }: { title: stri
   )
 }
 
-const CandCard = ({ t, on, toggle }: { t: Task; on: boolean; toggle: () => void }) => (
-  <div className={cx("pg-cand", on && "on")} onClick={toggle}>
+const CandCard = ({ t, on, off, toggle }: { t: Task; on: boolean; off?: boolean; toggle: () => void }) => (
+  <div className={cx("pg-cand", on && "on", off && "off")} onClick={toggle} title={off ? `原模型 ${t.model} 无法还原` : undefined}>
     <div className="pg-cand-m">
       <Thumb media={t.inputs[0] ?? t.outputs[0]} w="100%" ratio={1} radius={8} />
       <span className="pg-cand-c">
@@ -219,7 +243,7 @@ const CandCard = ({ t, on, toggle }: { t: Task; on: boolean; toggle: () => void 
     <div className="pg-cand-p">{t.prompt}</div>
     <div className="pg-cand-f">
       <span className={cx("dl-dot", t.downloaded && "on", t.failed && "fail")} />
-      <span className="ellipsis">{t.enterprise.name}</span>
+      <span className="ellipsis">{off ? t.model : t.enterprise.name}</span>
     </div>
   </div>
 )
@@ -455,11 +479,13 @@ const AddArm = ({ open, onClose, run, budget, onAdded }: { open: boolean; onClos
     <Drawer
       open={open}
       onClose={onClose}
-      width={520}
+      width={560}
+      pad
       title="加一种写法"
       footer={
         <div className="row" style={{ gap: 8, width: "100%" }}>
           {budget && <BudgetPill b={budget} need={need} />}
+          {need > left && <span className="down" style={{ fontSize: 12.5 }}>额度不够</span>}
           <span className="spacer" />
           <Button onClick={onClose}>取消</Button>
           <Button variant="primary" icon="play" loading={busy} disabled={!prompt.trim() || !model || need > left} onClick={go}>
@@ -468,7 +494,7 @@ const AddArm = ({ open, onClose, run, budget, onAdded }: { open: boolean; onClos
         </div>
       }
     >
-      <div className="stack" style={{ gap: 16, padding: "4px 0" }}>
+      <div className="stack" style={{ gap: 18 }}>
         <div className="tf">
           <div className="tf-l">名称</div>
           <Input value={label} onChange={(e) => setLabel(e.target.value)} />
@@ -483,8 +509,9 @@ const AddArm = ({ open, onClose, run, budget, onAdded }: { open: boolean; onClos
           </div>
           <PromptEditor value={prompt} onChange={setPrompt} minRows={8} />
         </div>
-        <div className="faint" style={{ fontSize: 13 }}>
-          已有的 {run.arms.length} 列不会重跑，只生成这一列的 {run.cases.length} 个结果。
+        <div className="pg-note">
+          <Icon name="info" size="xs" />
+          已有的 {run.arms.length} 列不会重跑，只生成这一列的 {run.cases.length} 个结果
         </div>
       </div>
     </Drawer>

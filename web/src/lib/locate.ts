@@ -1,6 +1,6 @@
 import { useEffect } from "react"
 import type { Locator } from "@spec/contract"
-import { navigate, useRoute, type EntTab, type PageKey } from "./route"
+import { navigate, useRoute, type EntTab, type PageKey, type Route } from "./route"
 
 const pageMap: Record<Locator["page"], PageKey> = {
   week: "week",
@@ -17,6 +17,7 @@ const pageMap: Record<Locator["page"], PageKey> = {
 export const locate = (l: Locator) => {
   const page = pageMap[l.page]
   const f = l.filters ?? {}
+  const values = (key: string) => f[key]?.split(",").filter(Boolean) ?? []
   navigate({
     page: l.page === "enterprise" && !l.enterprise ? "customers" : page,
     ...(l.line ? { line: l.line } : {}),
@@ -25,12 +26,16 @@ export const locate = (l: Locator) => {
     ...(l.section ? { section: l.section } : { section: null }),
     ...(l.draft ? { tpl: l.draft, pane: "drafts" as const } : {}),
     ...(l.run ? { run: l.run } : {}),
-    ...(f.level ? { level: f.level.split(",") as never } : {}),
-    ...(f.movement ? { movement: f.movement.split(",") as never } : {}),
-    ...(f.alert ? { alert: f.alert.split(",") as never } : {}),
-    ...(f.trend ? { trend: f.trend.split(",") as never } : {}),
-    ...(f.pool ? { pool: f.pool as never } : {}),
-    ...(f.tags ? { tags: f.tags.split(",") } : {}),
+    level: values("level") as Route["level"],
+    movement: values("movement") as Route["movement"],
+    alert: values("alert") as Route["alert"],
+    trend: values("trend") as Route["trend"],
+    models: values("models"),
+    intent: values("intent"),
+    pool: (f.pool ?? "all") as Route["pool"],
+    tags: values("tags"),
+    noted: values("noted") as Route["noted"],
+    q: f.q ?? "",
   })
 }
 

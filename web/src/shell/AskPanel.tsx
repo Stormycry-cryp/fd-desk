@@ -218,7 +218,7 @@ export const AskPanel = () => {
                   ))}
                   {live && (
                     <div className="ask-msg bot">
-                      {liveBlocks.map((i) => (live.blocks[i] ? <Block key={i} b={live.blocks[i]} onClarify={send} /> : <p key={i} className="ask-text">{live.parts[i]}</p>))}
+                      {liveBlocks.map((i) => (live.blocks[i] ? <Block key={i} b={live.blocks[i]} onClarify={send} /> : <RichText key={i} text={live.parts[i]} />))}
                       <div className="ask-status">
                         <span className="dots"><i /><i /><i /></span>
                         {live.status}
@@ -317,6 +317,91 @@ const History = ({ sessions, current, pick, remove }: { sessions: Omit<AskSessio
   )
 }
 
+const inline = (t: string) =>
+  t.split(/(\*\*[^*]+\*\*)/g).map((x, i) => (x.startsWith("**") && x.endsWith("**") ? <b key={i}>{x.slice(2, -2)}</b> : <span key={i}>{x}</span>))
+
+const lead = (t: string) => {
+  const m = /^([^，。；：:!?！？\s]{2,28})[：:]\s*(.+)$/s.exec(t)
+  return m ? (
+    <>
+      <b className="ask-lead">{m[1]}</b>
+      {inline(m[2])}
+    </>
+  ) : (
+    inline(t)
+  )
+}
+
+export const RichText = ({ text }: { text: string }) => {
+  const paras = text.replace(/\r/g, "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+  return (
+    <div className="ask-rich">
+      {paras.map((p, i) => {
+        const lines = p.split("\n").map((l) => l.trim()).filter(Boolean)
+        const items = lines.filter((l) => /^([-•·*]|\d+[.、)）])\s*/.test(l))
+        if (items.length && items.length === lines.length)
+          return (
+            <ul key={i}>
+              {lines.map((l, k) => (
+                <li key={k}>{lead(l.replace(/^([-•·*]|\d+[.、)）])\s*/, ""))}</li>
+              ))}
+            </ul>
+          )
+        const note = i === paras.length - 1 && paras.length > 1 && /(截断|不代表|仅供|仅基于|可能不完整)/.test(p)
+        return (
+          <p key={i} className={cx(i === 0 && paras.length > 1 && "first", note && "note")}>
+            {lines.map((l, k) => (
+              <span key={k}>
+                {k > 0 && <br />}
+                {lead(l)}
+              </span>
+            ))}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+type Piece = { kind: "one"; b: AskBlock } | { kind: "stats"; xs: Extract<AskBlock, { type: "stat" }>[] }
+
+const pieces = (blocks: AskBlock[]): Piece[] => {
+  const out: Piece[] = []
+  blocks.forEach((b) => {
+    const last = out[out.length - 1]
+    if (b.type === "stat") {
+      if (last?.kind === "stats") last.xs.push(b)
+      else out.push({ kind: "stats", xs: [b] })
+    } else out.push({ kind: "one", b })
+  })
+  return out
+}
+
+const Stats = ({ xs }: { xs: Extract<AskBlock, { type: "stat" }>[] }) =>
+  xs.length === 1 && !/[｜|]/.test(xs[0].label) ? (
+    <Block b={xs[0]} onClarify={() => {}} />
+  ) : (
+    <div className="ask-stats">
+      <div className="ask-ev-h">依据</div>
+      {xs.map((b, i) => {
+        const [name, ...rest] = b.label.split(/\s*[｜|]\s*/)
+        return (
+          <div key={i} className={cx("ask-sr", b.target && "go")} onClick={() => b.target && locate(b.target)}>
+            <span className="ask-sr-l">
+              <span className="ellipsis">{name}</span>
+              {rest.length > 0 && <span className="faint ellipsis">{rest.join(" · ")}</span>}
+            </span>
+            <span className="ask-sr-v num">{b.value}</span>
+            {b.delta && <span className={cx("ask-sr-d num", /^[-−]/.test(b.delta) ? "down" : "up")}>{b.delta}</span>}
+            {b.target ? <Icon name="arrowUpRight" size="xs" className="ask-sr-go" /> : <span />}
+          </div>
+        )
+      })}
+    </div>
+  )
+
+const plain = (m: AskMessage) => m.blocks.map((b) => (b.type === "text" ? b.text : b.type === "stat" ? `${b.label}：${b.value}${b.delta ? `（${b.delta}）` : ""}` : b.type === "list" ? [b.title, ...b.items.map((x) => `- ${x.label}${x.value ? `：${x.value}` : ""}`)].filter(Boolean).join("\n") : b.type === "chart" ? `${b.title}：${b.points.map((p) => `${p.label} ${p.value ?? "—"}`).join("，")}` : b.question)).join("\n\n") || m.text || ""
+
 const Message = ({ m, onClarify }: { m: AskMessage; onClarify: (s: string) => void }) =>
   m.role === "user" ? (
     <div className="ask-msg me">
@@ -324,11 +409,20 @@ const Message = ({ m, onClarify }: { m: AskMessage; onClarify: (s: string) => vo
     </div>
   ) : (
     <div className={cx("ask-msg bot", m.state === "failed" && "failed")}>
-      {m.blocks.length ? m.blocks.map((b, i) => <Block key={i} b={b} onClarify={onClarify} />) : m.text ? <p className="ask-text">{m.text}</p> : null}
+      {m.blocks.length ? pieces(m.blocks).map((x, i) => (x.kind === "stats" ? <Stats key={i} xs={x.xs} /> : <Block key={i} b={x.b} onClarify={onClarify} />)) : m.text ? <RichText text={m.text} /> : null}
       {m.state === "failed" && (
         <div className="ask-fail">
           <Icon name="alert" size="xs" />
           没能给出有依据的回答
+        </div>
+      )}
+      {m.state === "done" && (m.blocks.length > 0 || m.text) && (
+        <div className="ask-acts">
+          <span className="faint num">{time(m.createdAt).split(" ")[1]}</span>
+          <button onClick={() => navigator.clipboard.writeText(plain(m)).then(() => toast("已复制", { tone: "ok", ms: 1200 }))}>
+            <Icon name="copy" size="xs" />
+            复制
+          </button>
         </div>
       )}
     </div>
@@ -343,7 +437,7 @@ const Go = ({ t }: { t: Parameters<typeof locate>[0] | null }) =>
   ) : null
 
 const Block = ({ b, onClarify }: { b: AskBlock; onClarify: (s: string) => void }) => {
-  if (b.type === "text") return <p className="ask-text">{b.text}</p>
+  if (b.type === "text") return <RichText text={b.text} />
   if (b.type === "stat")
     return (
       <div className="ask-stat">

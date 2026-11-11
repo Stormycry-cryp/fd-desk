@@ -110,3 +110,11 @@
 - 允许"派生数字"：两个已有数字的差、比值、百分比（容差 0.1 个百分点），以及比例与百分数之间的换算。
 - 校验失败时不要只返回空的失败消息：把第一段文字结论保留下来，状态为 `done`，并附一个 `{ type: "text", text: "部分数字未能核对：……" }` 提示；或者把失败原因写进 `AskMessage.text`，前端会显示。
 - 流式事件：目前前端只在 `done` 后读取会话；`delta` 和 `block` 事件已支持，模型输出时尽量逐段发出，长回答不会一直空白。
+
+## 七、端到端实测发现（11/11 18:20）
+
+- **采纳并撰写**：Codex CLI 返回 `rate_limit`，任务失败，但机会已经标成"已采纳"，并留下一份标题和提示词都为空的草稿（`7feaa9c6`，来自"人物与服装保持的自然动态展示"）。建议撰写失败时机会回到"待处理"并删除空草稿，或保留草稿但提供 `POST /api/templates/:id/write` 重新撰写；`rate_limit` 时自动延后重试一次。
+- **试验台候选用例**：`/api/trials/candidates` 返回的 24 条里只有 1 条的原模型（`doubao-seedream-5.0-flash`）能映射到网关里唯一有价格的模型，其余 23 条创建试验时被 `fidelity_unverified` 拒绝。前端已把不能还原的用例置灰。建议：候选接口按 `budget.models[].fdModels` 优先返回能还原的用例并带 `runnable` 字段；给 Gemini（nano_banana_pro、gemini-nano-banana-2.1）和 GPT Image 系列在网关里补上价格与映射，否则灵感成款大多数任务无法试验。
+- **唯一能还原的那条用例**（rowKey `0002b974…`）连续两次 LiteLLM 返回 HTTP 400，失败原因只显示状态码。请把网关返回的错误信息写进 `error.message`。
+- 候选接口约 5.6 秒，建议缓存。
+- `/api/trials/budget` 的 `spentToday` 在试验运行中偶尔缺失（KeyError），请保证字段始终存在。

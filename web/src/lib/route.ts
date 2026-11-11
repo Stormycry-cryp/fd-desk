@@ -19,6 +19,8 @@ export interface Route {
   movement: Movement[]
   alert: AlertKind[]
   trend: TrendKind[]
+  models: string[]
+  intent: string[]
   owner: string | null
   q: string
   tab: EntTab
@@ -53,6 +55,8 @@ const read = (): Route => {
     movement: list(s.get("mv")) as Movement[],
     alert: list(s.get("alert")) as AlertKind[],
     trend: list(s.get("trend")) as TrendKind[],
+    models: list(s.get("models")),
+    intent: list(s.get("intent")),
     owner: s.get("owner"),
     q: s.get("q") ?? "",
     tab: (["profile", "data", "tasks", "notes"].includes(s.get("tab") ?? "") ? s.get("tab") : "profile") as EntTab,
@@ -82,6 +86,8 @@ const write = (r: Route, replace: boolean) => {
   if (r.movement.length) s.set("mv", r.movement.join(","))
   if (r.alert.length) s.set("alert", r.alert.join(","))
   if (r.trend.length) s.set("trend", r.trend.join(","))
+  if (r.models.length) s.set("models", r.models.join(","))
+  if (r.intent.length) s.set("intent", r.intent.join(","))
   if (r.owner) s.set("owner", r.owner)
   if (r.q) s.set("q", r.q)
   if (r.tab !== "profile" && (r.ent || r.page === "enterprise")) s.set("tab", r.tab)
@@ -120,13 +126,14 @@ export const useRoute = () =>
   )
 
 export const navigate = (patch: Partial<Route>, opts: { replace?: boolean } = {}) => {
-  const next = { ...current, ...patch }
+  const lineChanged = patch.line !== undefined && patch.line !== current.line
+  const next = { ...current, ...patch, ...(lineChanged ? { models: patch.models ?? [], intent: patch.intent ?? [] } : {}) }
   const filtersReset = patch.page && patch.page !== current.page && patch.page !== "enterprise"
   const entChanged = patch.ent !== undefined && patch.ent !== current.ent
   const base = entChanged && patch.tab === undefined ? { ...next, tab: "profile" as EntTab, section: patch.section ?? null } : next
   write(
     filtersReset
-      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], trend: patch.trend ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, ids: patch.ids ?? [], tpl: "tpl" in patch ? patch.tpl ?? null : patch.page === "playground" ? current.tpl : null }
+      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], trend: patch.trend ?? [], models: patch.models ?? [], intent: patch.intent ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, ids: patch.ids ?? [], tpl: "tpl" in patch ? patch.tpl ?? null : patch.page === "playground" ? current.tpl : null }
       : base,
     opts.replace ?? false,
   )

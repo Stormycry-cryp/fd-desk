@@ -1198,6 +1198,10 @@
   overscroll-behavior: contain;
 }
 
+.drawer-body.pad {
+  padding: 18px 20px 24px;
+}
+
 .drawer-foot {
   flex: none;
   display: flex;
@@ -2824,4 +2828,31 @@ button.stepper .step:hover,
 
 .mk-b .kbd-group {
   opacity: 0.6;
+}
+
+.ratio-ic {
+  display: inline-block;
+  flex: none;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  opacity: 0.55;
+}
+
+.ratio-ic.auto {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: linear-gradient(135deg, transparent 45%, currentColor 45%, currentColor 55%, transparent 55%);
+}
+
+.option .lead .ratio-ic,
+.trigger .ratio-ic {
+  margin: 0 2px;
+}
+
+.option .lead:has(.ratio-ic) {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
 }

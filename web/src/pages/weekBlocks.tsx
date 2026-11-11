@@ -12,41 +12,43 @@ import { CmpFoot, fmt, trimHistory, weekPoint } from "./common"
 
 export const Hero = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
   const hist = trimHistory(o.history)
-  const hasStable = hist.some((h) => h.stable != null)
-  const pts = hist.map((h) => ({ label: weekPoint(h.week), value: hasStable ? h.stable : h.activeEnterprises, partial: !h.complete, note: h.complete ? `重度 ${h.heavy ?? "—"} · 中度 ${h.medium ?? "—"}` : `活跃 ${h.activeEnterprises} 家` }))
-  const valid = pts.filter((p) => p.value != null)
-  const sparse = valid.length < 3
+  const pts = hist.map((h) => ({ label: weekPoint(h.week), value: h.activeEnterprises, partial: !h.complete, note: h.stable != null ? `稳定 ${h.stable} 家` : undefined }))
+  const stable = hist.map((h) => h.stable)
+  const hasStable = stable.some((v) => v != null)
+  const sparse = pts.filter((p) => p.value != null).length < 3
   const th = o.line === "inspiration" ? "任务 ≥ 20 且 ≥ 3 天" : "任务 ≥ 5 且 ≥ 2 天"
   return (
     <Card className="span-7" style={{ minHeight: 280 }}>
       <div className="hero">
         <div className="left">
-          {o.stable ? (
-            <Stat
-              size="lg"
-              label="稳定使用企业"
-              hint={`重度 + 中度。中度：${th}；重度：${o.line === "inspiration" ? "任务 ≥ 100 且 ≥ 4 天" : "任务 ≥ 20 且 ≥ 3 天"}`}
-              value={o.stable.value}
-              unit="家"
-              foot={o.stable.comparable ? <span className="row" style={{ gap: 6 }}><Delta pair={o.stable.comparable} pill /><span>比上周</span></span> : <span>上周不完整，无法对比</span>}
-            />
-          ) : (
-            <Stat size="lg" label="稳定使用企业" value="—" foot={<span>本周未结束，层级在整周后计算</span>} />
-          )}
+          <Stat size="lg" label="活跃企业" hint="这周至少有一个任务的企业" value={num(o.activeEnterprises.value)} unit="家" foot={<CmpFoot m={o.activeEnterprises} excluded={excluded} weekdays={o.comparableWeekdays} />} />
           {o.levels && <LevelBar levels={o.levels} onPick={(l) => navigate({ page: "customers", level: [l] })} />}
           <div className="hero-mini">
+            <Stat
+              size="xs"
+              label={<Hint text={`重度 + 中度。中度：${th}；重度：${o.line === "inspiration" ? "任务 ≥ 100 且 ≥ 4 天" : "任务 ≥ 20 且 ≥ 3 天"}`}>稳定使用</Hint>}
+              value={o.stable ? o.stable.value : "—"}
+              unit={o.stable?.comparable ? <Delta pair={o.stable.comparable} /> : undefined}
+            />
             <Stat size="xs" label={<Hint text="上周稳定使用的企业，本周仍稳定使用的比例">稳定留存</Hint>} value={o.retention?.rate != null ? pct(o.retention.rate) : "—"} unit={o.retention?.rate != null ? <span className="faint num">{o.retention.kept}/{o.retention.base}</span> : undefined} />
             <Stat size="xs" label="活跃账号" value={num(o.users.value)} />
-            <Stat size="xs" label="最大客户占比" value={pct(o.line === "inspiration" ? o.concentration.top1TaskShare : o.concentration.top1PointShare)} />
           </div>
         </div>
         <div className="chart-wrap">
           <div className="k">
-            {hasStable ? "稳定使用企业 · 近 12 周" : "活跃企业 · 近 12 周"}
+            <span className="nowrap">近 12 周</span>
+            {hasStable && (
+              <span className="act-legend">
+                <i className="d" />
+                活跃企业
+                <i className="a" />
+                稳定使用
+              </span>
+            )}
             {sparse && <span className="faint">数据积累中</span>}
             {excluded && <Badge tone="accent">对比采用排除名单</Badge>}
           </div>
-          <TrendChart points={pts} height={210} kind={sparse ? "bar" : "line"} highlight={pts.length - 1} />
+          <TrendChart points={pts} compare={hasStable ? stable : undefined} height={210} kind={sparse ? "bar" : "line"} highlight={pts.length - 1} />
         </div>
       </div>
     </Card>
@@ -73,8 +75,12 @@ export const Tiles = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
           {trend(hist.map((h) => (h.tasks ? h.downloadRate : null)), (n) => pct(n, 1))}
         </div>
         <div className="tile">
-          <Stat label="活跃企业" value={num(o.activeEnterprises.value)} foot={<CmpFoot m={o.activeEnterprises} excluded={excluded} weekdays={wd} />} />
-          {trend(hist.map((h) => h.activeEnterprises), num)}
+          <Stat
+            label={<Hint text="重度 + 中度企业">稳定使用企业</Hint>}
+            value={o.stable ? num(o.stable.value) : "—"}
+            foot={o.stable?.comparable ? <span className="row" style={{ gap: 6 }}><Delta pair={o.stable.comparable} pill /><span>比上周</span></span> : <span>{o.stable ? "上周不完整" : "整周后计算"}</span>}
+          />
+          {trend(hist.map((h) => h.stable), num)}
         </div>
         <div className="tile">
           {insp ? (

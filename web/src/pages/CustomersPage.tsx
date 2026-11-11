@@ -40,7 +40,7 @@ export const exportFile = download
 
 export const CustomersPage = () => {
   const { line, week, route } = useCtx()
-  const [models, setModels] = useState<string[]>([])
+  const { models, intent, q: search } = route
   const q = useRoster(line, week)
   const modelQs = useQueries({ queries: models.map((m) => ({ queryKey: ["GET /api/enterprises", null, { line, week, model: m }], queryFn: () => call("GET /api/enterprises", { query: { line, week: week!, model: m } }), enabled: !!week, staleTime: 30000 })) })
   const modelSets = useMemo(() => new Map(models.map((m, i) => [m, new Set((modelQs[i]?.data?.rows ?? []).map((r) => r.enterprise.id))])), [models, modelQs.map((x) => x.dataUpdatedAt).join()])
@@ -50,11 +50,8 @@ export const CustomersPage = () => {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "tasks", dir: -1 })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [focus, setFocus] = useState(-1)
-  const [intent, setIntent] = useState<string[]>([])
-  const [search, setSearch] = useState(route.q)
   const tbody = useRef<HTMLTableSectionElement>(null)
   useEffect(() => setSelected(new Set()), [line, week])
-  useEffect(() => setModels([]), [line, week])
   const rows = q.data?.rows ?? []
   const ex = useMemo(() => new Map((extra.data ?? []).map((x) => [x.enterpriseId, x])), [extra.data])
   const pending = useMemo(() => (extra.data ?? []).filter((x) => x.movement && (x.movement.state === "queued" || x.movement.state === "running")).map((x) => x.movement!.id), [extra.data])
@@ -205,13 +202,13 @@ export const CustomersPage = () => {
         options={[{ value: "all" as const, label: "全部", count: rows.length }, ...poolOrder.map((p) => ({ value: p, label: poolName[p], count: pc?.[p] ?? 0 }))]}
       />
       <div className="toolbar">
-        <Input icon="search" size="sm" quiet placeholder="企业或档案" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")} style={{ width: 200 }} />
+        <Input icon="search" size="sm" quiet placeholder="企业或档案" value={search} onChange={(e) => navigate({ q: e.target.value }, { replace: true })} onClear={() => navigate({ q: "" }, { replace: true })} style={{ width: 200 }} />
         <FilterChip label="层级" multi value={route.level} onChange={(v) => navigate({ level: v as Level[] }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
         <FilterChip label="变动" multi value={route.movement} onChange={(v) => navigate({ movement: v as Movement[] }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
         <FilterChip label="多周趋势" multi value={route.trend} onChange={(v) => navigate({ trend: v as TrendKind[] }, { replace: true })} options={trendOrder.map((k) => ({ value: k, label: <span className={cx("trend-opt", k)}><i />{trendName[k]}</span>, text: trendName[k], count: trendCounts.get(k) ?? 0 }))} />
         <FilterChip label="预警" multi value={route.alert} onChange={(v) => navigate({ alert: v as AlertKind[] }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
-        <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={setIntent} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
-        <FilterChip label="模型" multi search value={models} onChange={setModels} options={(q.data?.models ?? []).map((model) => ({ value: model, label: model, count: modelSets.get(model)?.size }))} />
+        <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={(v) => navigate({ intent: v }, { replace: true })} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
+        <FilterChip label="模型" multi search value={models} onChange={(v) => navigate({ models: v }, { replace: true })} options={(q.data?.models ?? []).map((model) => ({ value: model, label: model, count: modelSets.get(model)?.size }))} />
         {tagOrder.map((d) => {
           const opts = (tagsQ.data?.find((t) => t.dimension === d)?.values ?? []).filter((x) => x.count > 0)
           return opts.length ? <FilterChip key={d} label={tagDimName[d]} multi value={tagSel.get(d) ?? []} onChange={(v) => setTag(d, v)} options={opts.map((x) => ({ value: x.value, label: x.value, count: tagCount(d, x.value) }))} /> : null
@@ -222,10 +219,7 @@ export const CustomersPage = () => {
             size="sm"
             variant="ghost"
             onClick={() => {
-              navigate({ level: [], movement: [], alert: [], trend: [], owner: null, tags: [], noted: [] }, { replace: true })
-              setIntent([])
-              setModels([])
-              setSearch("")
+              navigate({ level: [], movement: [], alert: [], trend: [], models: [], intent: [], q: "", owner: null, tags: [], noted: [] }, { replace: true })
             }}
           >
             清除

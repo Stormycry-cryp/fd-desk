@@ -379,7 +379,7 @@ const useTopmost = (open: boolean) => {
   return () => stack[stack.length - 1] === id
 }
 
-export const Drawer = ({ open, onClose, title, children, footer, width = 640, actions, scrim = true }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; scrim?: boolean }) => {
+export const Drawer = ({ open, onClose, title, children, footer, width = 640, actions, scrim = true, pad }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; scrim?: boolean; pad?: boolean }) => {
   const { mounted, closing } = usePresence(open)
   const top = useTopmost(open)
   useEffect(() => {
@@ -402,7 +402,7 @@ export const Drawer = ({ open, onClose, title, children, footer, width = 640, ac
             </button>
           </div>
         )}
-        <div className="drawer-body">{children}</div>
+        <div className={cx("drawer-body", pad && "pad")}>{children}</div>
         {footer && <div className="drawer-foot">{footer}</div>}
       </aside>
     </Portal>

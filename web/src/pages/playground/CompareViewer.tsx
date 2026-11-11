@@ -20,6 +20,7 @@ export const CompareViewer = ({ run, arms, at, setAt, onClose, onMark, onAdopt }
   const [flip, setFlip] = useState(false)
   const [split, setSplit] = useState(50)
   const [out, setOut] = useState(0)
+  const [ar, setAr] = useState<number | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const c = run.cases[at.c]
   const arm = arms[Math.min(at.a, arms.length - 1)]
@@ -27,6 +28,14 @@ export const CompareViewer = ({ run, arms, at, setAt, onClose, onMark, onAdopt }
   const orig = c?.task.outputs[0]
   const next = cell?.outputs[out] ?? cell?.outputs[0]
   useEffect(() => setOut(0), [at.c, at.a])
+  useEffect(() => {
+    setAr(null)
+    const src = orig?.kind === "image" ? orig.url : next?.kind === "image" ? next.url : null
+    if (!src) return
+    const im = new Image()
+    im.onload = () => im.naturalWidth && setAr(im.naturalWidth / im.naturalHeight)
+    im.src = src
+  }, [orig?.url, next?.url])
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input, textarea")) return
@@ -108,7 +117,7 @@ export const CompareViewer = ({ run, arms, at, setAt, onClose, onMark, onAdopt }
               </figure>
             </div>
           ) : mode === "slide" ? (
-            <div className="cv-slide" ref={box} onPointerDown={drag}>
+            <div className="cv-slide" ref={box} onPointerDown={drag} style={{ aspectRatio: ar ?? 1 }}>
               <div className="cv-layer">
                 <Img m={next} label={arm.label} />
               </div>
@@ -122,7 +131,7 @@ export const CompareViewer = ({ run, arms, at, setAt, onClose, onMark, onAdopt }
               <span className="cv-lab r">{arm.label}</span>
             </div>
           ) : (
-            <div className="cv-flip" onClick={() => setFlip(!flip)}>
+            <div className="cv-flip" onClick={() => setFlip(!flip)} style={{ aspectRatio: ar ?? 1 }}>
               <Img m={flip ? orig : next} label={flip ? "原结果" : arm.label} />
               <span className="cv-lab l">
                 {flip ? "原结果" : arm.label}
