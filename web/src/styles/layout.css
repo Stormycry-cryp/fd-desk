@@ -263,6 +263,14 @@
   gap: 16px;
 }
 
+.grid > * {
+  min-width: 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
 .span-3 {
   grid-column: span 3;
 }

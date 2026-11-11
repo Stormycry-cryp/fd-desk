@@ -95,11 +95,11 @@ const Imports = () => {
           ) : q.error ? (
             <ErrorState error={q.error} />
           ) : q.data?.length ? (
-            <table className="table flush">
+            <div className="table-scroll">
+            <table className="table flush imports">
               <thead>
                 <tr>
                   <th>文件</th>
-                  <th>覆盖</th>
                   <th className="r">行数</th>
                   <th className="r">灵感成款</th>
                   <th className="r">AI视频</th>
@@ -111,24 +111,27 @@ const Imports = () => {
                 {q.data.map((j) => (
                   <tr key={j.id}>
                     <td>
-                      <span className="row" style={{ gap: 8 }}>
+                      <div className="imp-file" title={j.file}>
                         <Icon name={j.state === "failed" ? "alert" : "inbox"} size="sm" className={j.state === "failed" ? "down" : "faint"} />
-                        <span className="ellipsis" style={{ maxWidth: 300 }}>{j.file}</span>
+                        <div className="imp-file-t">
+                          <b className="num">{j.from && j.to ? (j.from === j.to ? j.from.slice(5) : `${j.from.slice(5)} – ${j.to.slice(5)}`) : "—"}</b>
+                          <span>{j.file}</span>
+                        </div>
                         {j.error && <Badge tone="warn">{j.error}</Badge>}
-                      </span>
+                      </div>
                     </td>
-                    <td className="num">{j.from && j.to ? `${j.from.slice(5)} – ${j.to.slice(5)}` : "—"}</td>
                     <td className="r num">{num(j.rows)}</td>
                     <td className="r num">{num(j.byLine.inspiration)}</td>
                     <td className="r num">{num(j.byLine.video)}</td>
                     <td className="r num">
                       {num(j.inserted)} <span className="faint">/ {num(j.updated)}</span>
                     </td>
-                    <td className="faint">{time(j.createdAt)}</td>
+                    <td className="faint nowrap">{time(j.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           ) : (
             <Empty icon="inbox" title="还没有导入" compact />
           )}

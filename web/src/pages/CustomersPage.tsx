@@ -41,6 +41,7 @@ export const exportFile = download
 export const CustomersPage = () => {
   const { line, week, route } = useCtx()
   const { models, intent, q: search } = route
+  const converting = route.pool === "convert"
   const q = useRoster(line, week)
   const modelQs = useQueries({ queries: models.map((m) => ({ queryKey: ["GET /api/enterprises", null, { line, week, model: m }], queryFn: () => call("GET /api/enterprises", { query: { line, week: week!, model: m } }), enabled: !!week, staleTime: 30000 })) })
   const modelSets = useMemo(() => new Map(models.map((m, i) => [m, new Set((modelQs[i]?.data?.rows ?? []).map((r) => r.enterprise.id))])), [models, modelQs.map((x) => x.dataUpdatedAt).join()])
@@ -52,7 +53,13 @@ export const CustomersPage = () => {
   const [focus, setFocus] = useState(-1)
   const tbody = useRef<HTMLTableSectionElement>(null)
   useEffect(() => setSelected(new Set()), [line, week])
-  const rows = q.data?.rows ?? []
+  const rows = useMemo(() => (q.data?.rows ?? []).map((r): RosterRow => {
+    const c = converting ? r.conversion : null
+    return c ? { ...r, tasks: c.tasks, points: c.points, activeDays: c.activeDays, users: c.users,
+      comparable: c.comparable, downloadRate: c.downloadRate, lastActiveAt: c.lastActiveAt,
+      movement: c.movement, spark: c.spark, downloadSignalReliable: true,
+      inspiration: { topIntent: c.topIntent, topIntentShare: c.topIntentShare, mainModel: c.mainModel, batchShare: 0, stuckShare: 0, agentShare: 0 }, video: null } : r
+  }), [q.data, converting])
   const ex = useMemo(() => new Map((extra.data ?? []).map((x) => [x.enterpriseId, x])), [extra.data])
   const pending = useMemo(() => (extra.data ?? []).filter((x) => x.movement && (x.movement.state === "queued" || x.movement.state === "running")).map((x) => x.movement!.id), [extra.data])
   useMovementPoll(pending)
@@ -157,7 +164,7 @@ export const CustomersPage = () => {
     </th>
   )
   const pc = q.data?.poolCounts
-  const insp = line === "inspiration"
+  const insp = converting || line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
   const anyFilter = route.level.length || route.movement.length || route.alert.length || route.trend.length || intent.length || models.length || search || tagSel.size || route.noted.length
   const tagCount = (d: TagDimension, v: string) => (extra.data ?? []).filter((x) => x.tags.some((t) => t.dimension === d && t.value === v)).length
@@ -172,9 +179,9 @@ export const CustomersPage = () => {
             {q.data ? (
               <>
                 <span>
-                  {lineName[line]} · 共 <b className="num" style={{ color: "var(--ink)" }}>{rows.length}</b> 家
+                  {converting ? "自由改款 · 转化候选" : lineName[line]} · 共 <b className="num" style={{ color: "var(--ink)" }}>{converting ? rows.filter((r) => r.pool === "convert").length : rows.length}</b> 家
                 </span>
-                <span className="faint">本周活跃 {rows.filter((r) => r.tasks > 0).length} 家</span>
+                <span className="faint">本周活跃 {rows.filter((r) => r.tasks > 0 && (!converting || r.pool === "convert")).length} 家</span>
               </>
             ) : (
               <Skel w={160} />
@@ -246,15 +253,15 @@ export const CustomersPage = () => {
                     <Checkbox checked={allOn} mixed={someOn} onChange={(v) => setSelected(v ? new Set(filtered.map((r) => r.enterprise.id)) : new Set())} />
                   </th>
                   {th("name", "企业")}
-                  {th("level", "层级")}
+                  {converting ? <th>活跃天数</th> : th("level", "层级")}
                   <th>变动</th>
                   {th("tasks", insp ? "任务" : "耗点", "r")}
                   {th("delta", "同星期", "r")}
                   {th("rate", "下载率")}
-                  <th>{insp ? "主要类型" : "主要模式"}</th>
-                  {insp ? th("stuck", <Tooltip content="批量：同一句提示词换图；卡住：同一张图重试或微调"><span>批量 · 卡住</span></Tooltip>, "r") : th("ppd", <Tooltip content="耗点 / 被下载的视频数"><span>每条下载</span></Tooltip>, "r")}
+                  <th>{converting ? <Tooltip content="按自由改款提示词的关键词归类"><span>主要任务</span></Tooltip> : insp ? "主要类型" : "主要模式"}</th>
+                  {converting ? <th className="r">近四周任务</th> : insp ? th("stuck", <Tooltip content="批量：同一句提示词换图；卡住：同一张图重试或微调"><span>批量 · 卡住</span></Tooltip>, "r") : th("ppd", <Tooltip content="耗点 / 被下载的视频数"><span>每条下载</span></Tooltip>, "r")}
                   {!insp && th("stuck", "未下载耗点", "r")}
-                  <th>档案</th>
+                  <th>{converting ? "转化依据与建议" : "档案"}</th>
                   <th>最近批注</th>
                   <th>12 周</th>
                   <th className="go" />
@@ -262,7 +269,7 @@ export const CustomersPage = () => {
               </thead>
               <tbody ref={tbody}>
                 {filtered.map((r, i) => (
-                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} tr={trends.map.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
+                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} tr={converting ? undefined : trends.map.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} converting={converting} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
                 ))}
               </tbody>
             </table>
@@ -285,8 +292,8 @@ export const CustomersPage = () => {
   )
 }
 
-const Row = ({ r, x, tr, onAnalyze, line, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; tr: Trend | undefined; onAnalyze: () => void; line: Line; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
-  const insp = line === "inspiration"
+const Row = ({ r, x, tr, onAnalyze, line, converting, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; tr: Trend | undefined; onAnalyze: () => void; line: Line; converting: boolean; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
+  const insp = converting || line === "inspiration"
   const i = r.inspiration
   const v = r.video
   const sparkVals = r.spark.map((p) => (insp ? p.tasks : p.points))
@@ -315,10 +322,10 @@ const Row = ({ r, x, tr, onAnalyze, line, focus, open, selected, onToggle, onOpe
         </div>
       </td>
       <td>
-        <LevelTag level={r.level} />
+        {converting ? <span className="num">{r.activeDays} 天</span> : <LevelTag level={r.level} />}
       </td>
       <td>
-        <MoveCell r={r} x={x} onAnalyze={onAnalyze} />
+        {converting ? <MovementTag m={r.movement} /> : <MoveCell r={r} x={x} onAnalyze={onAnalyze} />}
       </td>
       <td className="r num">{insp ? num(r.tasks) : compact(r.points)}</td>
       <td className="r">
@@ -346,7 +353,7 @@ const Row = ({ r, x, tr, onAnalyze, line, focus, open, selected, onToggle, onOpe
       {insp ? (
         <>
           <td className="r num">
-            {i && r.tasks ? (
+            {converting ? num(r.conversion?.recentTasks ?? 0) : i && r.tasks ? (
               <span>
                 {pct(i.batchShare)}
                 <span className="faint"> · </span>
@@ -364,9 +371,9 @@ const Row = ({ r, x, tr, onAnalyze, line, focus, open, selected, onToggle, onOpe
         </>
       )}
       <td>
-        {x?.headline ? (
-          <Tooltip content={x.headline}>
-            <div className="next-cell">{x.headline}</div>
+        {(converting ? r.conversion?.opportunity : x?.headline) ? (
+          <Tooltip content={converting ? r.conversion?.opportunity : x?.headline}>
+            <div className="next-cell">{converting ? r.conversion?.opportunity : x?.headline}</div>
           </Tooltip>
         ) : (
           <span className="faint">—</span>
