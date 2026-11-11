@@ -45,7 +45,7 @@ def test_daily_process_lock_prevents_duplicate_collection(client):
 def test_daily_recovery_reuses_verified_export_across_execution_dates(tmp_path):
     collector = collector_module()
     source_day = ROOT / "data/collector/2026-11-09"
-    completed = [path for path in source_day.glob("*/codex-*/answer.json") if json.loads(path.read_text())["state"] == "done"]
+    completed = sorted(path for path in source_day.glob("2026-11-10/codex-*/answer.json") if json.loads(path.read_text())["state"] == "done")
     assert completed
     answer = completed[-1]
     store = Store(tmp_path)

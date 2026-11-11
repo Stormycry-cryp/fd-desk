@@ -230,6 +230,7 @@ def mover_reason(engine, line, week, mover):
 
 
 def report(engine, week):
+    from .reports import complete
     from .workflow import Workflow
     lines = []
     for line in LINES:
@@ -242,6 +243,6 @@ def report(engine, week):
             "falling": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": mover_reason(engine, line, week, mover)} for mover in item["movers"]["falling"]],
             "rising": [{**{key: mover[key] for key in ("enterprise", "current", "previous")}, "reason": mover_reason(engine, line, week, mover)} for mover in item["movers"]["rising"]]})
     touches = Workflow(engine).touches(week=week)
-    return {"week": week, "lines": lines, "touches": {"sent": sum(bool(item["sentAt"]) for item in touches),
+    return complete(engine, {"week": week, "lines": lines, "touches": {"sent": sum(bool(item["sentAt"]) for item in touches),
         "replied": sum(item["status"] == "replied" for item in touches), "withOutcome": sum(item["outcome"] is not None for item in touches)},
-        "done": engine.store.authored("report_done", week), "next": engine.store.authored("report_next", week)}
+        "done": engine.store.authored("report_done", week), "next": engine.store.authored("report_next", week)})

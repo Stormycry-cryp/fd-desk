@@ -8,6 +8,21 @@
 
 使用 Python 3.12，依赖版本由 `server/uv.lock` 固定。启动时按文件修改时间导入 `data/inbox/` 中尚未成功导入的 `.xlsx` 或 UTF-8 BOM `.csv.gz`，然后监听 `127.0.0.1:8765`。同一个进程提供 `/api/*` 和已有的 `web/dist/`；前端构建目录不存在时，接口仍可使用。
 
+本机持续运行使用 macOS LaunchAgent。在前台服务已经退出的情况下安装：
+
+```bash
+~/.local/bin/uv run --directory server fd-desk install-service
+```
+
+配置保存到 `~/Library/LaunchAgents/cn.zhiyitech.fd-desk.server.plist`，安装后立即启动，开机登录当前账户后自动启动，退出终端或 Codex 会话后持续运行。进程退出后由系统重新启动；启动失败时按十秒间隔限制重试。重复安装相同配置保持当前进程，配置变化时重启服务。服务直接使用项目 Python 环境；同时提供前端页面和 API，访问 `http://127.0.0.1:8765`。数据库继续使用 `data/fd-desk.db`，每日采集保持独立调度。
+
+日志保存到 `data/service/logs/server.log`，每份最多 2 MiB，保留当前文件和一份轮换文件。查看状态和手工重启：
+
+```bash
+launchctl print gui/$(id -u)/cn.zhiyitech.fd-desk.server
+launchctl kickstart -k gui/$(id -u)/cn.zhiyitech.fd-desk.server
+```
+
 ```bash
 ~/.local/bin/uv run --directory server fd-desk selfcheck
 ~/.local/bin/uv run --directory server pytest
@@ -77,7 +92,13 @@ SQLite 使用 WAL，数据库位于 `data/fd-desk.db`。上传暂存和依赖库
 
 `Metric.value` 使用完整本周范围，其普通指标的 `comparable` 使用两周共同覆盖的星期。稳定使用企业数依赖完整周，只有两周都完整时才提供其比较数值。本周不完整时 `stable` 和 `levels` 返回 `null`。十二周历史中的无数据周使用零任务及空层级。
 
-原始导出未包含企业类型、在约状态、运营和售后，分别返回 `unknown` 或 `null`，可以通过企业接口补充。尚未撰写的小结和周报文字返回 `null`。未使用过的产品线详情、没有成员或模型信息的任务字段，以及没有视频首帧的 `poster` 返回 `null`。最近触达、企业触达记录和周报统计使用实际保存的卡片；FD 账号状态由检查接口更新。
+原始导出未包含企业类型、在约状态、运营和售后，分别返回 `unknown` 或 `null`，可以通过企业接口补充。尚未撰写的小结返回 `null`。未使用过的产品线详情、没有成员或模型信息的任务字段，以及没有视频首帧的 `poster` 返回 `null`。最近触达、企业触达记录和周报统计使用实际保存的卡片；FD 账号状态由检查接口更新。
+
+周报文字根据真实任务、覆盖日期和触达记录生成，标记为 `rule`。部分覆盖周明确显示实际日期和天数；没有运营记录时明确显示尚未录入，后续建议与历史执行记录分别表述。人工和模型撰写的文字保留；规则文字随数据更新计算。历史周报可以持久保存到数据库，重复执行只更新有变化的规则文字：
+
+```bash
+~/.local/bin/uv run --directory server fd-desk backfill-reports
+```
 
 分析矩阵提供任务级下载率、企业级中位下载率、企业数、集中度、模式分布和失败样本。提示词簇先合并规范化后相同的文本，再按 SequenceMatcher 相似度合并；RapidFuzz 只筛选可能达到门槛的比较对象。Agent 不参与。成员缓存包含内容校验值，支持按周、企业、候选状态查询，以及 `GET /api/tasks?cluster=<id>` 查询真实任务。
 

@@ -7,9 +7,17 @@ import uvicorn
 from .core import dump
 
 
+def serve(log_config=uvicorn.config.LOGGING_CONFIG):
+    from .app import create_app
+    from .ingest import scan
+    app = create_app()
+    scan(app.state.store)
+    uvicorn.run(app, host="127.0.0.1", port=8765, access_log=False, log_config=log_config)
+
+
 def main():
     parser = argparse.ArgumentParser(prog="fd-desk")
-    parser.add_argument("command", choices=("serve", "scan", "selfcheck", "import"), nargs="?", default="serve")
+    parser.add_argument("command", choices=("serve", "install-service", "backfill-reports", "scan", "selfcheck", "import"), nargs="?", default="serve")
     parser.add_argument("file", nargs="?", type=Path)
     parser.add_argument("--replace-range", action="store_true")
     parser.add_argument("--scope", type=Path)
@@ -24,11 +32,18 @@ def main():
     if args.file is not None or args.replace_range or args.scope is not None:
         parser.error("文件路径、--replace-range 和 --scope 只用于 import")
     if args.command == "serve":
-        from .app import create_app
-        from .ingest import scan
-        app = create_app()
-        scan(app.state.store)
-        uvicorn.run(app, host="127.0.0.1", port=8765, access_log=False)
+        serve()
+    elif args.command == "install-service":
+        from .service import install
+        install()
+    elif args.command == "backfill-reports":
+        from .reports import backfill
+        from .store import Store
+        store = Store()
+        try:
+            print(dump(backfill(store)))
+        finally:
+            store.close()
     elif args.command == "scan":
         from .ingest import scan
         from .store import Store
