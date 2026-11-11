@@ -19,7 +19,7 @@ const nav: { key: PageKey; label: string; icon: IconName; k: string }[] = [
   { key: "data", label: "数据", icon: "database", k: "D" },
 ]
 
-const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "触达", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业" }
+const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业", playground: "试验台", export: "导出" }
 
 export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: () => void; order: PageKey[] }) => {
   const { route, line, week, meta, metaError, coverage, exIds } = useCtx()

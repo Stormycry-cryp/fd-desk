@@ -3,13 +3,17 @@ import { patternName, sampleReasonName } from "../../lib/labels"
 import { time } from "../../lib/format"
 import { Badge, Thumb } from "../../ui/display"
 import { cx } from "../../ui/controls"
+import { Icon } from "../../ui/icons"
+import { Tooltip } from "../../ui/overlays"
+import { fdUrl } from "../../lib/fd"
 
 export const TaskCard = ({ t, onOpen }: { t: Task; onOpen: () => void }) => {
   const out = t.outputs[0] ?? null
   const input = t.inputs[0] ?? null
   const reason = t.sampleReason
+  const link = fdUrl(t)
   return (
-    <button className="task-card" onClick={onOpen}>
+    <div className="task-card" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
       <div className="media">
         <Thumb media={out ?? input} w="100%" ratio={4 / 3} dim={!out} />
         {out && input && t.line === "inspiration" && (
@@ -30,7 +34,14 @@ export const TaskCard = ({ t, onOpen }: { t: Task; onOpen: () => void }) => {
         {!reason && t.pattern !== "none" && t.pattern !== "new" && <span>· {patternName[t.pattern]}</span>}
         <span className="spacer" />
         <span className="ellipsis" style={{ maxWidth: 80 }}>{t.model}</span>
+        {link && (
+          <Tooltip content="在 FD 中打开">
+            <a className="fd-link" href={link} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} aria-label="在 FD 中打开">
+              <Icon name="external" size="xs" />
+            </a>
+          </Tooltip>
+        )}
       </div>
-    </button>
+    </div>
   )
 }

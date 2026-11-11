@@ -7,6 +7,7 @@ import { Icon } from "../../ui/icons"
 import { Modal } from "../../ui/overlays"
 import { Button, IconButton, cx } from "../../ui/controls"
 import { RerunModal } from "./RerunModal"
+import { fdUrl } from "../../lib/fd"
 
 export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: number | null; onClose: () => void }) => {
   const [i, setI] = useState(index ?? 0)
@@ -159,7 +160,14 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   )}
                   <dt>记录</dt>
                   <dd>
-                    <code style={{ fontFamily: "var(--mono)", fontSize: 12.5, color: "var(--ink-3)" }}>{t.sourceId}</code>
+                    {fdUrl(t) ? (
+                      <a className="fd-open" href={fdUrl(t)!} target="_blank" rel="noopener">
+                        <code>{t.sourceId}</code>
+                        <Icon name="external" size="xs" />
+                      </a>
+                    ) : (
+                      <code style={{ fontFamily: "var(--mono)", fontSize: 12.5, color: "var(--ink-3)" }}>{t.sourceId}</code>
+                    )}
                   </dd>
                 </dl>
               </div>

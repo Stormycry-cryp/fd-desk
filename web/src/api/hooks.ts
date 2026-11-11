@@ -2,14 +2,15 @@ import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/
 import type { AlertKind, EnterpriseDetail, Line, Roster, Touch, TouchBoard, TouchSlot } from "@spec/contract"
 import { call, RequestError, type CallOpts, type Res } from "./client"
 import type { Api } from "@spec/contract"
+import type { ApiNext } from "@spec/contract.next"
 
-type Key = keyof Api
+type Key = keyof (Api & ApiNext)
 
 const q = <K extends Key>(key: K, opts: CallOpts<K> = {}, enabled = true) => ({
   queryKey: [key, opts.params ?? null, opts.query ?? null] as QueryKey,
   queryFn: () => call(key, opts),
   enabled,
-  retry: (n: number, e: unknown) => !(e instanceof RequestError && e.status < 500) && n < 2,
+  retry: (n: number, e: unknown) => !(e instanceof RequestError && (e.missing || e.status < 500)) && n < 2,
 })
 
 export const useMeta = () => useQuery({ ...q("GET /api/meta"), staleTime: 60000 })

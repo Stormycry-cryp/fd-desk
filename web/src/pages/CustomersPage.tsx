@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import type { AlertKind, Level, Line, Movement, Pool, RosterRow, TouchSlot } from "@spec/contract"
+import type { AlertKind, Level, Line, Movement, Pool, RosterRow } from "@spec/contract"
+import type { RosterExtra, TagDimension } from "@spec/contract.next"
+import { useAnalyzeMovement, useMovementPoll, useRosterExtra, useTags } from "../api/next"
+import { tagDimName, tagOrder, TagChip, JobProgress } from "../ui/insight"
 import { useRoster } from "../api/hooks"
-import { call, url } from "../api/client"
-import { useQueryClient } from "@tanstack/react-query"
+import { url } from "../api/client"
 import { useCtx } from "../lib/ctx"
-import { alertName, kindName, levelName, levelOrder, lineName, movementName, poolName, poolOrder, slotName } from "../lib/labels"
+import { alertName, levelName, levelOrder, lineName, movementName, poolName, poolOrder } from "../lib/labels"
 import { navigate } from "../lib/route"
-import { ago, compact, num, pct } from "../lib/format"
+import { ago, compact, num, pct, time } from "../lib/format"
 import { useKey } from "../lib/useKey"
 import { Button, Checkbox, Input, Tabs, cx } from "../ui/controls"
 import { Avatar, Badge, Card, Delta, Empty, ErrorState, LevelTag, Rate, Skel } from "../ui/display"
@@ -14,7 +16,6 @@ import { Spark } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { FilterChip, Menu, Tooltip, toast } from "../ui/overlays"
 import { MovementTag } from "./bits"
-import { StatusTag } from "./bits"
 
 type SortKey = "name" | "level" | "tasks" | "delta" | "rate" | "share" | "stuck" | "last" | "ppd"
 const levelRank = (l: Level | null) => (l ? 5 - levelOrder.indexOf(l) : 0)
@@ -51,19 +52,36 @@ export const CustomersPage = () => {
   const { line, week, route } = useCtx()
   const [models, setModels] = useState<string[]>([])
   const q = useRoster(line, week, models[0])
-  const qc = useQueryClient()
+  const extra = useRosterExtra(line, week)
+  const tagsQ = useTags(line)
+  const analyze = useAnalyzeMovement()
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "tasks", dir: -1 })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [focus, setFocus] = useState(-1)
-  const [batchBusy, setBatchBusy] = useState(false)
   const [intent, setIntent] = useState<string[]>([])
-  const [kind, setKind] = useState<string[]>([])
   const [search, setSearch] = useState(route.q)
   const tbody = useRef<HTMLTableSectionElement>(null)
   useEffect(() => setSelected(new Set()), [line, week])
   useEffect(() => setModels([]), [line, week])
   const rows = q.data?.rows ?? []
-  const owners = useMemo(() => [...new Set(rows.map((r) => r.owner.sales).filter(Boolean) as string[])].sort(), [rows])
+  const ex = useMemo(() => new Map((extra.data ?? []).map((x) => [x.enterpriseId, x])), [extra.data])
+  const pending = useMemo(() => (extra.data ?? []).filter((x) => x.movement && (x.movement.state === "queued" || x.movement.state === "running")).map((x) => x.movement!.id), [extra.data])
+  useMovementPoll(pending)
+  const tagSel = useMemo(() => {
+    const m = new Map<TagDimension, string>()
+    route.tags.forEach((t) => {
+      const [d, v] = t.split(":")
+      if (d && v) m.set(d as TagDimension, v)
+    })
+    return m
+  }, [route.tags])
+  const setTag = (d: TagDimension, v: string | null) => {
+    const m = new Map(tagSel)
+    if (v) m.set(d, v)
+    else m.delete(d)
+    navigate({ tags: [...m].map(([k, x]) => `${k}:${x}`) }, { replace: true })
+  }
+  const weekAgo = Date.now() - 7 * 86400000
   const intents = useMemo(() => {
     const m = new Map<string, number>()
     rows.forEach((r) => {
@@ -85,10 +103,10 @@ export const CustomersPage = () => {
         (!route.level || r.level === route.level) &&
         (!route.movement || r.movement === route.movement) &&
         (!route.alert || r.alerts.includes(route.alert)) &&
-        (!route.owner || r.owner.sales === route.owner) &&
         (!intent.length || intent.includes(r.inspiration?.topIntent ?? r.video?.topMode ?? "")) &&
-        (!kind.length || kind.includes(r.enterprise.kind)) &&
-        (!s || r.enterprise.name.toLowerCase().includes(s) || (r.owner.sales ?? "").includes(s)),
+        [...tagSel].every(([d, v]) => ex.get(r.enterprise.id)?.tags.some((t) => t.dimension === d && t.value === v)) &&
+        (!route.noted || (route.noted === "any" ? (ex.get(r.enterprise.id)?.annotationCount ?? 0) > 0 : !!ex.get(r.enterprise.id)?.lastAnnotation && new Date(ex.get(r.enterprise.id)!.lastAnnotation!.at).getTime() >= weekAgo)) &&
+        (!s || r.enterprise.name.toLowerCase().includes(s) || (ex.get(r.enterprise.id)?.headline ?? "").toLowerCase().includes(s)),
     )
     const f = sorters[sort.key]
     xs = [...xs].sort((a, b) => {
@@ -97,7 +115,7 @@ export const CustomersPage = () => {
       return (typeof x === "string" ? x.localeCompare(y as string, "zh") : (x as number) - (y as number)) * sort.dir
     })
     return xs
-  }, [rows, route.pool, route.level, route.movement, route.alert, route.owner, intent, kind, search, sort])
+  }, [rows, route.pool, route.level, route.movement, route.alert, intent, tagSel, route.noted, ex, search, sort])
   useEffect(() => setFocus(-1), [filtered.length, route.pool])
   useEffect(() => {
     if (focus >= 0) tbody.current?.children[focus]?.scrollIntoView({ block: "nearest" })
@@ -141,31 +159,13 @@ export const CustomersPage = () => {
       </span>
     </th>
   )
-  const createTouches = async (slot: TouchSlot) => {
-    if (batchBusy) return
-    setBatchBusy(true)
-    const list = rows.filter((r) => selected.has(r.enterprise.id))
-    let completed = 0
-    try {
-      for (const r of list) {
-        await call("POST /api/touches", { body: { line, week: week!, slot, enterprise: r.enterprise.id, goal: r.pool ?? "nurture", draft: r.nextAction?.text, owner: r.owner.sales ?? undefined, source: "manual" } })
-        completed += 1
-        setSelected(previous => { const next = new Set(previous); next.delete(r.enterprise.id); return next })
-      }
-      toast(`已在${slotName[slot]}建了 ${list.length} 张触达卡片`, { tone: "ok", action: { label: "查看", run: () => navigate({ page: "touches" }) } })
-      setSelected(new Set())
-    } catch (e: any) {
-      toast(`已创建 ${completed} 张，创建中断：${e.message}`, { tone: "error" })
-    } finally {
-      qc.invalidateQueries({ queryKey: ["GET /api/touches"] })
-      qc.invalidateQueries({ queryKey: ["GET /api/enterprises"] })
-      setBatchBusy(false)
-    }
-  }
   const pc = q.data?.poolCounts
   const insp = line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
-  const anyFilter = route.level || route.movement || route.alert || route.owner || intent.length || kind.length || models.length || search
+  const anyFilter = route.level || route.movement || route.alert || intent.length || models.length || search || tagSel.size || route.noted
+  const tagCount = (d: TagDimension, v: string) => (extra.data ?? []).filter((x) => x.tags.some((t) => t.dimension === d && t.value === v)).length
+  const noteAny = (extra.data ?? []).filter((x) => x.annotationCount > 0).length
+  const noteRecent = (extra.data ?? []).filter((x) => x.lastAnnotation && new Date(x.lastAnnotation.at).getTime() >= weekAgo).length
   return (
     <div className="page">
       <div className="page-head">
@@ -205,22 +205,24 @@ export const CustomersPage = () => {
         options={[{ value: "all" as const, label: "全部", count: rows.length }, ...poolOrder.map((p) => ({ value: p, label: poolName[p], count: pc?.[p] ?? 0 }))]}
       />
       <div className="toolbar">
-        <Input icon="search" size="sm" quiet placeholder="企业或负责人" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")} style={{ width: 200 }} />
+        <Input icon="search" size="sm" quiet placeholder="企业或档案" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")} style={{ width: 200 }} />
         <FilterChip label="层级" value={route.level ? [route.level] : []} onChange={(v) => navigate({ level: (v[0] as Level) ?? null }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
         <FilterChip label="变动" value={route.movement ? [route.movement] : []} onChange={(v) => navigate({ movement: (v[0] as Movement) ?? null }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
         <FilterChip label="预警" value={route.alert ? [route.alert] : []} onChange={(v) => navigate({ alert: (v[0] as AlertKind) ?? null }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
         <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={setIntent} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
         <FilterChip label="模型" value={models} onChange={setModels} options={(q.data?.models ?? []).map(model => ({ value: model, label: model }))} />
-        {owners.length > 0 && <FilterChip label="负责人" search value={route.owner ? [route.owner] : []} onChange={(v) => navigate({ owner: v[0] ?? null }, { replace: true })} options={owners.map((o) => ({ value: o, label: o, count: rows.filter((r) => r.owner.sales === o).length }))} />}
-        <FilterChip label="类型" multi value={kind} onChange={setKind} options={(["customer", "internal", "agency", "unknown"] as const).map((k) => ({ value: k, label: kindName[k], count: rows.filter((r) => r.enterprise.kind === k).length })).filter((o) => o.count)} />
+        {tagOrder.map((d) => {
+          const opts = (tagsQ.data?.find((t) => t.dimension === d)?.values ?? []).filter((x) => x.count > 0)
+          return opts.length ? <FilterChip key={d} label={tagDimName[d]} value={tagSel.has(d) ? [tagSel.get(d)!] : []} onChange={(v) => setTag(d, v[0] ?? null)} options={opts.map((x) => ({ value: x.value, label: x.value, count: tagCount(d, x.value) }))} /> : null
+        })}
+        <FilterChip label="批注" value={route.noted ? [route.noted] : []} onChange={(v) => navigate({ noted: (v[0] as "any" | "recent") ?? null }, { replace: true })} options={[{ value: "any", label: "有批注", count: noteAny }, { value: "recent", label: "近 7 天有跟进", count: noteRecent }]} />
         {anyFilter && (
           <Button
             size="sm"
             variant="ghost"
             onClick={() => {
-              navigate({ level: null, movement: null, alert: null, owner: null }, { replace: true })
+              navigate({ level: null, movement: null, alert: null, owner: null, tags: [], noted: null }, { replace: true })
               setIntent([])
-              setKind([])
               setModels([])
               setSearch("")
             }}
@@ -257,15 +259,15 @@ export const CustomersPage = () => {
                   <th>{insp ? "主要类型" : "主要模式"}</th>
                   {insp ? th("stuck", <Tooltip content="批量：同一句提示词换图；卡住：同一张图重试或微调"><span>批量 · 卡住</span></Tooltip>, "r") : th("ppd", <Tooltip content="耗点 / 被下载的视频数"><span>每条下载</span></Tooltip>, "r")}
                   {!insp && th("stuck", "未下载耗点", "r")}
-                  <th>下一步</th>
-                  <th>触达</th>
+                  <th>档案</th>
+                  <th>最近批注</th>
                   <th>12 周</th>
                   <th className="go" />
                 </tr>
               </thead>
               <tbody ref={tbody}>
                 {filtered.map((r, i) => (
-                  <Row key={r.enterprise.id} r={r} line={line} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
+                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
                 ))}
               </tbody>
             </table>
@@ -275,16 +277,9 @@ export const CustomersPage = () => {
       {selected.size > 0 && (
         <div className="bulkbar">
           <span className="n">已选 {selected.size} 家</span>
-          <Menu
-            placement="top-start"
-            width={200}
-            items={(["mon", "wed", "fri"] as TouchSlot[]).map((s) => ({ key: s, label: `${slotName[s]}触达`, icon: "send", onSelect: () => createTouches(s) }))}
-            trigger={({ toggle, ref }) => (
-              <Button ref={ref as any} size="sm" variant="primary" icon="send" iconRight="chevDown" loading={batchBusy} onClick={toggle}>
-                建触达卡片
-              </Button>
-            )}
-          />
+          <Button size="sm" variant="primary" icon="printer" onClick={() => window.open(`/print/profiles?ids=${[...selected].join(",")}`, "_blank", "noopener")}>
+            打印档案
+          </Button>
           <Button size="sm" icon="download" onClick={() => exportFile(url("GET /api/enterprises/export", { query: { line, week: week!, ids: [...selected] } }), `客户名单_${lineName[line]}_${week}.xlsx`)}>导出所选企业</Button>
           <Button size="sm" variant="ghost" icon="x" onClick={() => setSelected(new Set())}>
             取消
@@ -295,7 +290,7 @@ export const CustomersPage = () => {
   )
 }
 
-const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRow; line: Line; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
+const Row = ({ r, x, onAnalyze, line, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; onAnalyze: () => void; line: Line; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
   const insp = line === "inspiration"
   const i = r.inspiration
   const v = r.video
@@ -312,17 +307,13 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
           <div className="stack" style={{ minWidth: 0, overflow: "hidden" }}>
             <span className="name">{r.enterprise.name}</span>
             <span className="sub">
-              <span>{r.owner.sales ?? "未分配"}</span>
-              <span>·</span>
-              <span>{ago(r.lastActiveAt)}</span>
+              {x?.tags.length ? x.tags.filter((t) => t.dimension !== "rhythm").slice(0, 2).map((t) => <TagChip key={t.dimension} t={t} />) : <span>{ago(r.lastActiveAt)}</span>}
               {!r.downloadSignalReliable ? (
                 <Tooltip content={`任务多但几乎不下载，可能用别的方式保存结果${r.excluded ? "；已从对比中排除" : ""}`}>
                   <span className="badge warn">下载存疑</span>
                 </Tooltip>
               ) : r.excluded ? (
                 <Badge tone="outline">已排除</Badge>
-              ) : r.enterprise.kind !== "customer" && r.enterprise.kind !== "unknown" ? (
-                <Badge>{kindName[r.enterprise.kind]}</Badge>
               ) : null}
             </span>
           </div>
@@ -332,7 +323,7 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
         <LevelTag level={r.level} />
       </td>
       <td>
-        <MovementTag m={r.movement} />
+        <MoveCell r={r} x={x} onAnalyze={onAnalyze} />
       </td>
       <td className="r num">{insp ? num(r.tasks) : compact(r.points)}</td>
       <td className="r">
@@ -378,15 +369,26 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
         </>
       )}
       <td>
-        {r.nextAction?.text ? (
-          <Tooltip content={r.nextAction.text}>
-            <div className="next-cell">{r.nextAction.text}</div>
+        {x?.headline ? (
+          <Tooltip content={x.headline}>
+            <div className="next-cell">{x.headline}</div>
           </Tooltip>
         ) : (
           <span className="faint">—</span>
         )}
       </td>
-      <td>{r.lastTouch ? <StatusTag s={r.lastTouch.status} /> : <span className="faint">—</span>}</td>
+      <td>
+        {x?.lastAnnotation ? (
+          <Tooltip content={<span style={{ whiteSpace: "pre-wrap" }}>{x.lastAnnotation.text}</span>}>
+            <div className="note-cell">
+              <span className="num">{time(x.lastAnnotation.at).split(" ")[0]}</span>
+              <span className="ellipsis">{x.lastAnnotation.text}</span>
+            </div>
+          </Tooltip>
+        ) : (
+          <span className="faint">—</span>
+        )}
+      </td>
       <td>
         <Spark values={sparkVals} tone={trend} w={50} />
       </td>
@@ -394,6 +396,38 @@ const Row = ({ r, line, focus, open, selected, onToggle, onOpen }: { r: RosterRo
         <Icon name="chevRight" size="sm" />
       </td>
     </tr>
+  )
+}
+
+const MoveCell = ({ r, x, onAnalyze }: { r: RosterRow; x: RosterExtra | undefined; onAnalyze: () => void }) => {
+  const m = x?.movement
+  const can = r.movement !== "steady" || (r.comparable && r.comparable.previous > 0)
+  if (m && (m.state === "queued" || m.state === "running"))
+    return (
+      <span className="move-cell">
+        <MovementTag m={r.movement} />
+        <JobProgress state={m.state} label="分析中" />
+      </span>
+    )
+  if (m && m.state === "done")
+    return (
+      <Tooltip content={m.headline}>
+        <span className="move-cell" onClick={(e) => (e.stopPropagation(), navigate({ ent: r.enterprise.id, section: "movement" }))}>
+          <MovementTag m={r.movement} />
+          <span className={cx("move-why", m.direction)}>{m.headline}</span>
+        </span>
+      </Tooltip>
+    )
+  return (
+    <span className="move-cell">
+      <MovementTag m={r.movement} />
+      {can && (
+        <button className="move-btn" onClick={(e) => (e.stopPropagation(), onAnalyze())}>
+          <Icon name="sparkle" size="xs" />
+          分析
+        </button>
+      )}
+    </span>
   )
 }
 

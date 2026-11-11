@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
-import type { Alert, ContractState, EnterpriseDetail, EnterpriseKind, Line, LineDetail, SampleReason, Task } from "@spec/contract"
-import { useChains, useDaily, useEnterprise, useTasks, useCall, usePutNextAction } from "../../api/hooks"
+import type { Annotation, Profile, Scope } from "@spec/contract.next"
+import { useAnnotations, useProfile, useSetHeadline, useSetTag } from "../../api/next"
+import { useSectionFocus } from "../../lib/locate"
+import { AnnotationRail, AnnotationScope, AnnotationTimeline, Annotatable, ComposerPopover } from "../../ui/annotate"
+import { TagPicker } from "../../ui/insight"
+import { ProfileTab } from "./Profile"
+import { fdUrl } from "../../lib/fd"
+import type { Alert, EnterpriseDetail, Line, LineDetail, SampleReason, Task } from "@spec/contract"
+import { useChains, useDaily, useEnterprise, useTasks, usePutNextAction } from "../../api/hooks"
 import { useCtx } from "../../lib/ctx"
-import { alertName, contractName, failureName, kindName, lineName, offerName, patternName, poolAction, poolName, sampleReasonName, slotName } from "../../lib/labels"
-import { navigate } from "../../lib/route"
+import { alertName, failureName, lineName, offerName, patternName, poolAction, poolName, sampleReasonName, slotName } from "../../lib/labels"
+import { navigate, type EntTab } from "../../lib/route"
 import { ago, compact, num, pct, time, weekLabel, weekShort } from "../../lib/format"
-import { Button, IconButton, Segmented, TextArea } from "../../ui/controls"
+import { Button, IconButton, Segmented, Tabs } from "../../ui/controls"
 import { Avatar, Badge, Empty, ErrorState, InlineEdit, LevelTag, Phone, Rate, Sev, Skel, SourceTag, Stat, Thumb, Delta } from "../../ui/display"
 import { Heatmap, StackBar, TrendChart } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
@@ -45,108 +51,147 @@ export const EnterpriseDrawer = ({ id }: { id: string }) => {
   )
 }
 
+const NO_ANN: Annotation[] = []
+
 const sampleOrder: SampleReason[] = ["stuck", "not_downloaded", "batch", "downloaded", "failed"]
 
 export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => {
-  const { line: ctxLine, week } = useCtx()
+  const { line: ctxLine, week, route } = useCtx()
   const q = useEnterprise(id, week)
+  const pq = useProfile(id)
+  const anns = useAnnotations(id)
+  useSectionFocus()
   const d = q.data
+  const prof = pq.data
   const available = d ? (["inspiration", "video"] as Line[]).filter((l) => d.lines[l]) : []
-  const [line, setLine] = useState<Line>(ctxLine)
-  useEffect(() => {
-    if (d && !d.lines[line] && available.length) setLine(available[0])
-  }, [d, line])
-  useEffect(() => setLine(ctxLine), [ctxLine, id])
+  const scope: Scope = route.scope ?? "all"
+  const tab = route.tab
+  const dataLine: Line = scope !== "all" && available.includes(scope) ? scope : available.includes(ctxLine) ? ctxLine : available[0] ?? ctxLine
   if (q.isLoading) return <EntSkeleton />
   if (q.error || !d) return <ErrorState error={q.error} retry={() => q.refetch()} />
-  const ld = d.lines[line]
+  const ld = d.lines[dataLine]
+  const list = anns.data ?? prof?.annotations ?? NO_ANN
+  const openCount = list.filter((a) => !a.resolved).length
+  const setTab = (t: EntTab) => navigate({ tab: t }, { replace: true })
+  const setScope = (s: Scope) => navigate({ scope: s === "all" ? null : s }, { replace: true })
+  const none = <Empty icon="layers" title={`没有用过${lineName[dataLine]}`} />
+  const body =
+    tab === "profile" ? (
+      prof ? <ProfileTab p={prof} scope={scope} /> : pq.error ? <div style={{ padding: 24 }}><ErrorState error={pq.error} retry={() => pq.refetch()} /></div> : <EntSkeleton />
+    ) : tab === "data" ? (
+      ld ? <LineBody d={d} ld={ld} week={week!} /> : none
+    ) : tab === "tasks" ? (
+      ld ? (
+        <>
+          <Chains id={d.enterprise.id} line={ld.line} week={week!} />
+          <Samples key={`${d.enterprise.id}:${ld.line}:${week}`} id={d.enterprise.id} line={ld.line} week={week!} ld={ld} />
+        </>
+      ) : (
+        none
+      )
+    ) : (
+      <div style={{ padding: "20px 24px 32px" }}>{anns.error && !prof ? <ErrorState error={anns.error} /> : <AnnotationTimeline list={list} />}</div>
+    )
   return (
-    <div className="ent" key={id}>
-      <Header d={d} week={week!} page={page} />
-      {available.length > 1 && (
-        <div style={{ padding: "16px 24px 0" }}>
-          <Segmented value={line} onChange={setLine} options={available.map((l) => ({ value: l, label: lineName[l] }))} />
+    <AnnotationScope enterprise={id} list={list} mode={page ? "rail" : "inline"}>
+      <div className="ent" key={id}>
+        <Top d={d} p={prof ?? null} page={page} missing={!!pq.error} />
+        <div className="ent-tabs-wrap">
+          <div className="ent-tabs">
+            <Tabs
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: "profile" as EntTab, label: "档案" },
+                { value: "data" as EntTab, label: "数据" },
+                { value: "tasks" as EntTab, label: "任务" },
+                { value: "notes" as EntTab, label: "批注", count: openCount || undefined },
+              ]}
+            />
+            {tab !== "notes" && available.length > 0 && (
+              <Segmented
+                size="sm"
+                value={tab === "profile" ? scope : dataLine}
+                onChange={(v) => setScope(v as Scope)}
+                options={[...(tab === "profile" ? [{ value: "all", label: "全部" }] : []), ...available.map((l) => ({ value: l, label: lineName[l] }))]}
+              />
+            )}
+          </div>
         </div>
-      )}
-      {ld ? <LineBody d={d} ld={ld} week={week!} /> : <Empty icon="layers" title={`没有用过${lineName[line]}`} text="可以放进转化池，用这条线把他最近的任务做一遍" />}
-      <Members ld={ld} />
-      <AlertsTouches d={d} />
-      <Notes d={d} />
-    </div>
+        {page && tab === "profile" ? (
+          <div className="ent-full">
+            <div style={{ minWidth: 0 }}>{body}</div>
+            <div className="ann-col">
+              <AnnotationRail />
+            </div>
+          </div>
+        ) : (
+          body
+        )}
+        <ComposerPopover />
+      </div>
+    </AnnotationScope>
   )
 }
 
-const Header = ({ d, week, page }: { d: EnterpriseDetail; week: string; page?: boolean }) => {
-  const qc = useQueryClient()
-  const patch = useCall("PATCH /api/enterprises/:id", ["GET /api/enterprises", "GET /api/enterprises/:id", "GET /api/meta", "GET /api/overview"])
-  const save = (body: Parameters<typeof patch.mutate>[0]["body"], msg: string) =>
-    patch.mutate(
-      { params: { id: d.enterprise.id }, body, query: { week } } as any,
-      {
-        onSuccess: () => toast(msg, { tone: "ok", ms: 1800 }),
-        onError: (e: any) => toast(`保存失败：${e.message}`, { tone: "error" }),
-      },
-    )
-  void qc
+const Top = ({ d, p, page, missing }: { d: EnterpriseDetail; p: Profile | null; page?: boolean; missing?: boolean }) => {
+  const setTag = useSetTag(d.enterprise.id)
+  const setHeadline = useSetHeadline(d.enterprise.id)
   const lines = (["inspiration", "video"] as Line[]).filter((l) => d.lines[l])
   return (
-    <div className="ent-head">
-      <div className="row" style={{ alignItems: "flex-start", gap: 14 }}>
+    <div className="ent-top">
+      <div className="name-row">
         <Avatar name={d.enterprise.name} size={44} square />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="name">{d.enterprise.name}</div>
-          <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-            <Select
-              size="sm"
-              ghost
-              value={d.enterprise.kind}
-              onChange={(v) => save({ kind: v as EnterpriseKind }, `已标为${kindName[v as EnterpriseKind]}`)}
-              options={(["customer", "internal", "agency", "unknown"] as EnterpriseKind[]).map((k) => ({ value: k, label: kindName[k], hint: k === "internal" ? "会自动加入排除列表" : undefined }))}
-              popWidth={200}
-            />
-            <Select size="sm" ghost value={d.contract} onChange={(v) => save({ contract: v as ContractState }, "已更新签约状态")} options={(Object.keys(contractName) as ContractState[]).map((k) => ({ value: k, label: contractName[k] }))} popWidth={160} />
-            {lines.map((l) => (
-              <span key={l} className="row" style={{ gap: 6, fontSize: 13.5, color: "var(--ink-3)", marginLeft: 4 }}>
-                <span className="faint">{lineName[l]}</span>
-                <LevelTag level={d.lines[l]!.level} empty="—" />
-              </span>
-            ))}
-          </div>
+          {!missing && <Annotatable block="headline" label="一句话" className="ent-headline">
+            {p?.headline ? (
+              <div className="headline" data-quote-block="headline">
+                <InlineEdit value={p.headline.text} multiline={false} onSave={(v) => setHeadline.mutate(v)} />
+              </div>
+            ) : (
+              <div className="headline faint">{p ? (p.state === "facts_only" ? "任务不足 20 个，暂不生成档案判断" : "档案生成后显示一句话概括") : <span className="skel" style={{ display: "inline-block", width: 280, height: 14 }} />}</div>
+            )}
+          </Annotatable>}
         </div>
-        {page && (
-          <Button size="sm" icon="send" onClick={() => navigate({ page: "touches" })}>
-            触达
-          </Button>
-        )}
+        {page && <ExportButton id={d.enterprise.id} />}
       </div>
+      {!missing && <div className="tags">{p ? <TagPicker tags={p.tags} onChange={(dim, v) => setTag.mutate({ dimension: dim, value: v })} /> : <Skel w={360} h={28} />}</div>}
       <div className="meta">
         <span>
           <Icon name="phone" size="xs" />
           <Phone value={d.adminPhone} />
         </span>
-        <span>
-          <Icon name="user" size="xs" />
-          运营 <InlineEdit value={d.owner.sales ?? ""} placeholder="未分配" multiline={false} onSave={text => save({ owner: { ...d.owner, sales: text || null } }, "已更新运营负责人")} />
-        </span>
-        <span>
-          售后 <InlineEdit value={d.owner.afterSales ?? ""} placeholder="未分配" multiline={false} onSave={text => save({ owner: { ...d.owner, afterSales: text || null } }, "已更新售后负责人")} />
-        </span>
+        {lines.map((l) => (
+          <span key={l}>
+            <span className="faint">{lineName[l]}</span>
+            <LevelTag level={d.lines[l]!.level} empty="—" />
+          </span>
+        ))}
         <span>
           <Icon name="clock" size="xs" />
           最近使用 {ago(d.lastActiveAt)}
         </span>
         <span className="faint">首次 {weekShort(d.firstSeenAt)}</span>
       </div>
-      <div className="note-box" style={{ marginTop: 16 }}>
-        <div className="k">
-          小结
-          <SourceTag a={d.summary} />
-        </div>
-        <InlineEdit value={d.summary?.text ?? ""} placeholder="一句话说清他在做什么、卡在哪" saving={patch.isPending} onSave={(v) => save({ summary: v, source: "manual" }, "小结已保存")} />
-      </div>
     </div>
   )
 }
+
+const ExportButton = ({ id }: { id: string }) => (
+  <Menu
+    width={200}
+    items={[
+      { key: "print", label: "打印档案", icon: "printer", onSelect: () => window.open(`/print/profiles?ids=${id}`, "_blank", "noopener") },
+      { key: "notes", label: "导出批注", icon: "download", onSelect: () => window.open(`/api/export/annotations?enterprise=${id}`, "_blank", "noopener") },
+    ]}
+    trigger={({ toggle, ref }) => (
+      <Button ref={ref as never} size="sm" icon="download" iconRight="chevDown" onClick={toggle}>
+        导出
+      </Button>
+    )}
+  />
+)
 
 const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: string }) => {
   const insp = ld.line === "inspiration"
@@ -193,7 +238,6 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
         </h4>
         <TrendChart points={pts} height={150} kind="bar" highlight={pts.length - 1} format={(v) => compact(v)} />
       </div>
-      <EntDaily id={d.enterprise.id} line={ld.line} />
       <div className="ent-section">
         <h4>
           在做什么
@@ -260,8 +304,9 @@ const LineBody = ({ d, ld, week }: { d: EnterpriseDetail; ld: LineDetail; week: 
           </div>
         )}
       </div>
-      <Chains id={d.enterprise.id} line={ld.line} week={week} />
-      <Samples key={`${d.enterprise.id}:${ld.line}:${week}`} id={d.enterprise.id} line={ld.line} week={week} ld={ld} />
+      <EntDaily id={d.enterprise.id} line={ld.line} />
+      <Members ld={ld} />
+      <AlertsTouches d={d} />
     </>
   )
 }
@@ -311,6 +356,12 @@ const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) =>
                   {time(c.startedAt)} · {c.length} 次
                 </span>
                 <span className="num">{c.points} 点</span>
+                {fdUrl(c.tasks[0]) && (
+                  <a className="fd-open" href={fdUrl(c.tasks[0])!} target="_blank" rel="noopener" style={{ fontSize: 12.5 }}>
+                    在 FD 中打开
+                    <Icon name="external" size="xs" />
+                  </a>
+                )}
               </div>
               <div className="steps">
                 {c.tasks.slice(0, 7).map((t, i) => (
@@ -482,38 +533,6 @@ const AlertsTouches = ({ d }: { d: EnterpriseDetail }) => {
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-const Notes = ({ d }: { d: EnterpriseDetail }) => {
-  const [text, setText] = useState("")
-  const add = useCall("POST /api/enterprises/:id/notes", ["GET /api/enterprises/:id"])
-  const del = useCall("DELETE /api/notes/:id", ["GET /api/enterprises/:id"])
-  const submit = () => {
-    if (!text.trim()) return
-    add.mutate({ params: { id: d.enterprise.id }, body: { text: text.trim() } }, { onSuccess: () => setText(""), onError: (e: any) => toast(e.message, { tone: "error" }) })
-  }
-  return (
-    <div className="ent-section" style={{ paddingBottom: 32 }}>
-      <h4>备注</h4>
-      <div className="stack" style={{ gap: 8 }}>
-        <TextArea value={text} onChange={(e) => setText(e.target.value)} placeholder="记录沟通内容，⌘↵ 保存" onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && submit()} style={{ minHeight: 56 }} />
-        {text && (
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <Button size="sm" variant="primary" loading={add.isPending} onClick={submit}>
-              添加
-            </Button>
-          </div>
-        )}
-        {d.notes.map((n) => (
-          <div key={n.id} className="row" style={{ alignItems: "flex-start", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--line-2)" }}>
-            <div style={{ flex: 1, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
-            <span className="faint num" style={{ fontSize: 13 }}>{time(n.createdAt)}</span>
-            <Menu items={[{ key: "del", label: "删除", icon: "trash", danger: true, onSelect: () => del.mutate({ params: { id: n.id } }) }]} trigger={({ toggle, ref }) => <IconButton ref={ref as any} size="xs" icon="more" label="更多" onClick={toggle} />} width={140} />
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

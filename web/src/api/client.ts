@@ -1,7 +1,9 @@
 import type { Api, ApiError } from "@spec/contract"
+import type { ApiNext } from "@spec/contract.next"
 
-type Key = keyof Api
-type Spec<K extends Key> = Api[K]
+type AllApi = Api & ApiNext
+type Key = keyof AllApi
+type Spec<K extends Key> = AllApi[K]
 type Q<K extends Key> = Spec<K> extends { query: infer T } ? T : never
 type B<K extends Key> = Spec<K> extends { body: infer T } ? T : never
 export type Res<K extends Key> = Spec<K> extends { response: infer T } ? T : never
@@ -16,7 +18,12 @@ export class RequestError extends Error {
   constructor(public status: number, public code: string, message: string) {
     super(message)
   }
+  get missing() {
+    return this.code === "not_implemented"
+  }
 }
+
+export const isMissing = (e: unknown) => e instanceof RequestError && e.missing
 
 const build = (key: string, opts: CallOpts<any>) => {
   const [method, raw] = key.split(" ")
@@ -49,6 +56,8 @@ export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promi
   const data = await res.json()
   if (!res.ok) {
     const err = (data?.detail ?? data) as Partial<ApiError>
+    const absent = res.status === 405 || (res.status === 404 && (err.code === "not_found" || err.code === "not_implemented") && err.message === "接口不存在")
+    if (absent) throw new RequestError(404, "not_implemented", "后端尚未提供")
     throw new RequestError(res.status, err.code ?? "error", err.message ?? res.statusText)
   }
   return data as Res<K>

@@ -17,5 +17,5 @@
     "types": ["vite/client"],
     "paths": { "@spec/*": ["../spec/*"] }
   },
-  "include": ["src", "../spec/contract.ts", "vite.config.ts"]
+  "include": ["src", "../spec/contract.ts", "../spec/contract.next.ts", "vite.config.ts"]
 }

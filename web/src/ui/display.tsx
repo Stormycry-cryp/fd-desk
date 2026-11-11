@@ -267,7 +267,8 @@ export const CoverageDots = ({ days, week, lg }: { days: string[]; week: string;
   )
 }
 
-export const ErrorState = ({ error, retry }: { error: unknown; retry?: () => void }) => {
-  const e = error as { message?: string }
+export const ErrorState = ({ error, retry, compact }: { error: unknown; retry?: () => void; compact?: boolean }) => {
+  const e = error as { message?: string; missing?: boolean }
+  if (e?.missing) return <Empty icon="layers" compact={compact} title="后端尚未提供" text="接口完成后这里会自动显示" />
   return <Empty icon="alert" title="加载失败" text={e?.message} action={retry && <Button size="sm" icon="refresh" onClick={retry}>重试</Button>} />
 }

@@ -1,10 +1,12 @@
 import { useMeta } from "../api/hooks"
 import { useRoute } from "./route"
+import { setSiteBase } from "./fd"
 
 export const useCtx = () => {
   const route = useRoute()
   const meta = useMeta()
   const m = meta.data
+  setSiteBase(m?.siteBaseUrl)
   const weeks = m?.weeks ?? []
   const cov = (w: string) => m?.coverage.find((c) => c.line === route.line && c.week === w)
   const fallback = m?.latestWeek[route.line] ?? weeks[weeks.length - 1] ?? null

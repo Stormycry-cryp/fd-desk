@@ -1,7 +1,11 @@
 import { useSyncExternalStore } from "react"
 import type { AlertKind, Level, Line, Movement, Pool } from "@spec/contract"
 
-export type PageKey = "week" | "customers" | "touches" | "templates" | "analysis" | "data" | "report" | "enterprise"
+export type PageKey = "week" | "customers" | "touches" | "templates" | "analysis" | "data" | "report" | "enterprise" | "playground" | "export"
+export type EntTab = "profile" | "data" | "tasks" | "notes"
+export type EntScope = "all" | Line
+export type TplKind = "official" | "custom"
+export type TplPane = "opportunities" | "drafts" | "live"
 
 export interface Route {
   page: PageKey
@@ -15,9 +19,18 @@ export interface Route {
   alert: AlertKind | null
   owner: string | null
   q: string
+  tab: EntTab
+  scope: EntScope | null
+  section: string | null
+  tags: string[]
+  noted: "any" | "recent" | null
+  kind: TplKind
+  pane: TplPane
+  tpl: string | null
+  run: string | null
 }
 
-const pages: PageKey[] = ["week", "customers", "touches", "templates", "analysis", "data", "report", "enterprise"]
+const pages: PageKey[] = ["week", "customers", "touches", "templates", "analysis", "data", "report", "enterprise", "playground", "export"]
 
 const read = (): Route => {
   const u = new URL(location.href)
@@ -36,6 +49,15 @@ const read = (): Route => {
     alert: (s.get("alert") as AlertKind) || null,
     owner: s.get("owner"),
     q: s.get("q") ?? "",
+    tab: (["profile", "data", "tasks", "notes"].includes(s.get("tab") ?? "") ? s.get("tab") : "profile") as EntTab,
+    scope: (["all", "inspiration", "video"].includes(s.get("scope") ?? "") ? s.get("scope") : null) as EntScope | null,
+    section: s.get("sec"),
+    tags: s.get("tags")?.split(",").filter(Boolean) ?? [],
+    noted: (s.get("noted") as "any" | "recent") || null,
+    kind: s.get("kind") === "custom" ? "custom" : "official",
+    pane: (["opportunities", "drafts", "live"].includes(s.get("pane") ?? "") ? s.get("pane") : "opportunities") as TplPane,
+    tpl: page === "playground" ? seg[1] ?? s.get("tpl") : s.get("tpl"),
+    run: s.get("run"),
   }
 }
 
@@ -54,7 +76,18 @@ const write = (r: Route, replace: boolean) => {
   if (r.alert) s.set("alert", r.alert)
   if (r.owner) s.set("owner", r.owner)
   if (r.q) s.set("q", r.q)
-  const path = r.page === "enterprise" ? `/enterprise/${r.ent ?? ""}` : r.page === "week" ? "/" : `/${r.page}`
+  if (r.tab !== "profile" && (r.ent || r.page === "enterprise")) s.set("tab", r.tab)
+  if (r.scope && (r.ent || r.page === "enterprise")) s.set("scope", r.scope)
+  if (r.section) s.set("sec", r.section)
+  if (r.tags.length) s.set("tags", r.tags.join(","))
+  if (r.noted) s.set("noted", r.noted)
+  if (r.page === "templates" || r.page === "playground") {
+    if (r.kind !== "official") s.set("kind", r.kind)
+    if (r.pane !== "opportunities" && r.page === "templates") s.set("pane", r.pane)
+    if (r.tpl && r.page === "templates") s.set("tpl", r.tpl)
+  }
+  if (r.run) s.set("run", r.run)
+  const path = r.page === "enterprise" ? `/enterprise/${r.ent ?? ""}` : r.page === "playground" ? `/playground/${r.tpl ?? ""}` : r.page === "week" ? "/" : `/${r.page}`
   const qs = s.toString()
   const url = qs ? `${path}?${qs}` : path
   if (replace) history.replaceState(null, "", url)
@@ -80,7 +113,14 @@ export const useRoute = () =>
 export const navigate = (patch: Partial<Route>, opts: { replace?: boolean } = {}) => {
   const next = { ...current, ...patch }
   const filtersReset = patch.page && patch.page !== current.page && patch.page !== "enterprise"
-  write(filtersReset ? { ...next, ent: patch.ent ?? null, level: patch.level ?? null, movement: patch.movement ?? null, alert: patch.alert ?? null, owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all" } : next, opts.replace ?? false)
+  const entChanged = patch.ent !== undefined && patch.ent !== current.ent
+  const base = entChanged && patch.tab === undefined ? { ...next, tab: "profile" as EntTab, section: patch.section ?? null } : next
+  write(
+    filtersReset
+      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? null, movement: patch.movement ?? null, alert: patch.alert ?? null, owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? null, section: patch.section ?? null, run: patch.run ?? null, tpl: patch.tpl ?? (patch.page === "playground" ? current.tpl : null) }
+      : base,
+    opts.replace ?? false,
+  )
 }
 
 export const getRoute = () => current

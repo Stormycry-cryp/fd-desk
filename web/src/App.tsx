@@ -15,6 +15,10 @@ import { ReportPage } from "./pages/ReportPage"
 import { EnterprisePage } from "./pages/EnterprisePage"
 import { EnterpriseDrawer } from "./pages/enterprise/EnterpriseView"
 import { KitPage } from "./pages/KitPage"
+import { ProfilePreview } from "./pages/kit/ProfilePreview"
+import { PlaygroundPage } from "./pages/PlaygroundPage"
+import { ExportPage } from "./pages/ExportPage"
+import { useJobWatcher } from "./api/next"
 import { Button } from "./ui/controls"
 import { Empty, ErrorState } from "./ui/display"
 import { PageSkeleton } from "./pages/common"
@@ -28,6 +32,8 @@ const pages: Record<PageKey | "kit", () => React.ReactNode> = {
   data: DataPage,
   report: ReportPage,
   enterprise: EnterprisePage,
+  playground: PlaygroundPage,
+  export: ExportPage,
   kit: KitPage,
 }
 
@@ -36,6 +42,7 @@ const order: PageKey[] = ["week", "customers", "touches", "templates", "analysis
 export const App = () => {
   const { route, meta, metaError, metaLoading, refreshMeta, week } = useCtx()
   const [palette, setPalette] = useState(false)
+  useJobWatcher()
   const kit = location.pathname.startsWith("/kit")
   useKey(
     (e) => {
@@ -65,7 +72,7 @@ export const App = () => {
     document.title = `${titles[route.page] ?? ""} · FD 客户台`
     window.scrollTo({ top: 0 })
   }, [route.page])
-  const Page = kit ? pages.kit : pages[route.page]
+  const Page = kit ? (location.pathname.startsWith("/kit/profile") ? ProfilePreview : pages.kit) : pages[route.page]
   const content = metaError ? <ErrorState error={metaError} retry={() => refreshMeta()} /> : metaLoading || !meta ? <PageSkeleton /> : !week && route.page !== "data" && !kit ? <Empty title="尚未导入数据" action={<Button onClick={() => navigate({ page: "data" })}>导入数据</Button>} /> : <Page key={kit ? "kit" : route.page} />
   return (
     <>
