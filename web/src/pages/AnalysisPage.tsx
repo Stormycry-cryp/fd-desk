@@ -11,6 +11,10 @@ import { BarList } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { Menu, Modal, Tooltip, toast } from "../ui/overlays"
 import { TaskViewer } from "./enterprise/TaskViewer"
+import { useQueryClient } from "@tanstack/react-query"
+import { call } from "../api/client"
+import { errorText, watchJob } from "../api/next"
+import { JobProgress } from "../ui/insight"
 
 const mix = (a: number[], b: number[], t: number) => a.map((x, i) => Math.round(x + (b[i] - x) * t))
 const heat = (v: number | null, base: number) => {
@@ -288,8 +292,12 @@ const Findings = ({ line }: { line: Line }) => {
                   {f.rule && <Badge tone="accent" icon="zap">驱动预警</Badge>}
                   <span>{time(f.updatedAt)}</span>
                 </div>
+                <Rechecks f={f} />
               </div>
-              <Menu width={160} items={[{ key: "edit", label: "编辑", icon: "edit", onSelect: () => setEdit(f) }]} trigger={({ toggle, ref }) => <IconButton ref={ref as any} size="sm" icon="more" label="更多" onClick={toggle} />} />
+              <div className="row" style={{ gap: 4, alignSelf: "flex-start" }}>
+                <RecheckButton f={f} />
+                <Menu width={160} items={[{ key: "edit", label: "编辑", icon: "edit", onSelect: () => setEdit(f) }]} trigger={({ toggle, ref }) => <IconButton ref={ref as any} size="sm" icon="more" label="更多" onClick={toggle} />} />
+              </div>
             </div>
           ))
         ) : (
@@ -345,5 +353,64 @@ const FindingEditor = ({ value, line, onClose }: { value: Finding | "new" | null
         </div>
       </div>
     </Modal>
+  )
+}
+
+const RecheckButton = ({ f }: { f: Finding }) => {
+  const [busy, setBusy] = useState(false)
+  const qc = useQueryClient()
+  const go = async () => {
+    setBusy(true)
+    try {
+      const j = await call("POST /api/findings/:id/recheck", { params: { id: f.id } })
+      watchJob(j, (r) => {
+        setBusy(false)
+        qc.invalidateQueries({ queryKey: ["GET /api/findings"] })
+        toast(r.state === "done" ? "已用最新数据核对" : `核对失败：${r.error?.message ?? ""}`, { tone: r.state === "done" ? "ok" : "error" })
+      })
+    } catch (e) {
+      setBusy(false)
+      toast(errorText(e), { tone: "error" })
+    }
+  }
+  return busy ? <JobProgress state="running" label="核对中" /> : (
+    <Button size="xs" variant="ghost" icon="refresh" onClick={go}>
+      重新核对
+    </Button>
+  )
+}
+
+const Rechecks = ({ f }: { f: Finding }) => {
+  const patch = useCall("PATCH /api/findings/:id", ["GET /api/findings"])
+  const [all, setAll] = useState(false)
+  const xs = [...(f.rechecks ?? [])].sort((a, b) => (a.at < b.at ? 1 : -1))
+  if (!xs.length) return null
+  const shown = all ? xs : xs.slice(0, 1)
+  return (
+    <div className="rechecks">
+      {shown.map((r, i) => (
+        <div key={r.at} className={cx("recheck", r.changed && "changed")}>
+          <div className="row" style={{ gap: 8 }}>
+            <span className={`verdict ${r.verdict}`}>{verdictName[r.verdict]}</span>
+            <span className="faint num">{time(r.at)} 核对</span>
+            {r.changed ? <Badge tone="warn">结论有变化</Badge> : <span className="faint">结论不变</span>}
+            <span className="spacer" />
+            {i === 0 && r.changed && (
+              <Button size="xs" variant="soft" icon="check" loading={patch.isPending} onClick={() => patch.mutate({ params: { id: f.id }, body: { verdict: r.verdict, evidence: r.evidence, sample: r.sample } }, { onSuccess: () => toast("已采用新结论", { tone: "ok" }) })}>
+                采用新结论
+              </Button>
+            )}
+          </div>
+          <div className="ev">{r.evidence}</div>
+          <div className="faint" style={{ fontSize: 12.5 }}>{r.sample}</div>
+        </div>
+      ))}
+      {xs.length > 1 && (
+        <button className="pf-more" onClick={() => setAll(!all)}>
+          <Icon name={all ? "chevUp" : "chevDown"} size="xs" />
+          {all ? "收起" : `更早的 ${xs.length - 1} 次核对`}
+        </button>
+      )}
+    </div>
   )
 }

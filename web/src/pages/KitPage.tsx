@@ -6,6 +6,18 @@ import { BarList, LevelBar, Spark, StackBar, TrendChart } from "../ui/charts"
 import { Drawer, FilterChip, Menu, Modal, Select, Tooltip, toast } from "../ui/overlays"
 import { levelOrder } from "../lib/labels"
 import { StatusTag } from "./bits"
+import { DiffText, MarkControl, PromptEditor, VersionList } from "../ui/prompt"
+import { ExportMenu } from "../ui/export"
+import { JobProgress } from "../ui/insight"
+import { MovementCard } from "./movement"
+import type { Mark, MovementAnalysis, TemplateVersion } from "@spec/contract"
+
+const kitContent = (prompt: string) => ({ title: "换色", task: "", prompt, variables: [], slots: [{ name: "款式图", required: true, requirement: "" }], model: null, ratio: null, resolution: null, fits: "", avoids: "" })
+const kitVersions: TemplateVersion[] = [
+  { version: 1, content: kitContent("保持{{款式图}}版型不变，把颜色换成[颜色]，面料质感保持一致"), source: "agent", note: "从 32 家企业的写法整理", createdAt: "2026-11-09T10:00:00+08:00" },
+  { version: 2, content: kitContent("保持{{款式图}}的版型、褶皱和面料质感不变，只把主色换成[颜色]，辅料颜色不变"), source: "manual", note: "补上辅料", createdAt: "2026-11-10T15:20:00+08:00" },
+]
+const kitMove: MovementAnalysis = { id: "k", enterprise: { id: "k", name: "杭州承甫贸易有限公司", kind: "customer" }, line: "inspiration", week: "2026-11-02", direction: "down", change: { current: 107, previous: 298 }, headline: "任务量回落，使用重心从换色转向印花面料", reasons: [{ text: "换色任务明显减少，是本周回落的主要构成", evidence: { label: "换色", value: "27", target: null } }, { text: "印花面料成为本周主要类型", evidence: { label: "印花面料", value: "61", target: null } }], action: "核实换色需求是否告一段落，跟进印花面料的使用", confidence: "medium", trigger: "auto", state: "done", error: null, createdAt: "2026-11-11T10:00:00+08:00" }
 
 const swatches = [
   ["--bg", "背景"],
@@ -28,6 +40,9 @@ export const KitPage = () => {
   const [chk, setChk] = useState(true)
   const [sw, setSw] = useState(true)
   const [radio, setRadio] = useState("owner")
+  const [prompt, setPrompt] = useState("保持{{款式图}}的版型不变，把主色换成[颜色]")
+  const [mark, setMark] = useState<Mark | null>("better")
+  const [usable, setUsable] = useState(true)
   const [n, setN] = useState(20)
   const [p, setP] = useState(0.35)
   const [drawer, setDrawer] = useState(false)
@@ -191,6 +206,32 @@ export const KitPage = () => {
         </Card>
         <Card className="span-6" title="空状态">
           <Empty icon="users" title="没有符合条件的企业" text="换个页签或清除筛选" compact />
+        </Card>
+      </div>
+      <div className="grid">
+        <Card className="span-6" title="提示词编辑 · PromptEditor">
+          <PromptEditor value={prompt} onChange={setPrompt} slots={["款式图"]} variables={["颜色"]} />
+        </Card>
+        <Card className="span-6" title="版本与差异 · VersionList / DiffText">
+          <VersionList versions={kitVersions} current={2} onRestore={() => toast("回退")} />
+        </Card>
+        <Card className="span-6" title="对比标记 · MarkControl">
+          <div className="stack" style={{ gap: 12 }}>
+            <MarkControl value={mark} usable={usable} onMark={setMark} onUsable={(v) => setUsable(!!v)} keys />
+            <DiffText from="把颜色换成红色" to="只把主色换成红色，辅料不变" />
+          </div>
+        </Card>
+        <Card className="span-6" title="异步与导出 · JobProgress / ExportMenu">
+          <div className="stack" style={{ gap: 12 }}>
+            <JobProgress state="running" done={3} total={8} label="3/8" />
+            <JobProgress state="running" label="正在撰写" />
+            <JobProgress state="done" label="已完成" />
+            <JobProgress state="failed" error="网关限流" />
+            <ExportMenu items={[{ key: "a", label: "官方模板配置表", run: () => toast("导出") }, { key: "b", label: "模板监控", run: () => toast("导出") }]} />
+          </div>
+        </Card>
+        <Card className="span-12" title="涨跌原因 · MovementCard">
+          <MovementCard m={kitMove} showName />
         </Card>
       </div>
       <Drawer open={drawer} onClose={() => setDrawer(false)} title="抽屉" footer={<Button variant="primary" onClick={() => setDrawer(false)}>完成</Button>}>

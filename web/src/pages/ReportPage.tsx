@@ -10,6 +10,8 @@ import { Toaster, toast } from "../ui/overlays"
 import { WeekPicker } from "../shell/WeekPicker"
 import { pickPair } from "./common"
 import { useOverview } from "../api/hooks"
+import { Activity, Hero, Tiles } from "./weekBlocks"
+import { useMovements } from "../api/next"
 
 export const ReportPage = () => {
   const { week, excluded } = useCtx()
@@ -49,7 +51,7 @@ export const ReportPage = () => {
             <InlineEdit value={r.done?.text ?? ""} placeholder="写下本周的动作" onSave={(v) => save("done", v)} />
             <div className="row" style={{ gap: 24, marginTop: 12, fontSize: 13.5, color: "var(--ink-3)" }}>
               <span>
-                触达已发送 <b className="num" style={{ color: "var(--ink)" }}>{r.touches.sent}</b>
+                跟进已联系 <b className="num" style={{ color: "var(--ink)" }}>{r.touches.sent}</b>
               </span>
               <span>
                 已回复 <b className="num" style={{ color: "var(--ink)" }}>{r.touches.replied}</b>
@@ -72,6 +74,8 @@ export const ReportPage = () => {
 
 const LineBlock = ({ l, excluded, week }: { l: ReportLine; excluded: boolean; week: string }) => {
   const ov = useOverview(l.line as Line, week)
+  const mv = useMovements(l.line as Line, week)
+  const why = new Map((mv.data ?? []).filter((m) => m.state === "done" && m.headline).map((m) => [m.enterprise.id, m.headline]))
   const wd = ov.data?.comparableWeekdays ?? []
   const insp = l.line === "inspiration"
   const p = pickPair(insp ? l.tasks : l.points, false)
@@ -79,13 +83,24 @@ const LineBlock = ({ l, excluded, week }: { l: ReportLine; excluded: boolean; we
   const cmpLabel = wd.length === 7 ? "比上周" : `同星期（${weekdaysLabel(wd)}）`
   return (
     <>
+      <section className="rp-line">
       <h2>{lineName[l.line]}</h2>
-      <div className="metrics">
-        <Stat label="稳定使用企业" value={l.stable?.value ?? "—"} unit={l.stable ? "家" : undefined} foot={l.stable?.comparable ? <Delta pair={l.stable.comparable} pill /> : <span>上周不完整</span>} />
-        <Stat label="活跃企业" value={num(l.activeEnterprises.value)} foot={<Delta pair={pickPair(l.activeEnterprises, excluded)} pill />} />
-        <Stat label={insp ? "任务" : "耗点"} value={insp ? num(l.tasks.value) : compact(l.points.value)} foot={<Delta pair={p} pill />} />
-        <Stat label="下载率" value={pct(l.downloadRate.value, 1)} foot={<Delta pair={pickPair(l.downloadRate, excluded)} rate pill />} />
-      </div>
+      {ov.data ? (
+        <div className="grid rp-grid">
+          <Hero o={ov.data} excluded={excluded} />
+          <Tiles o={ov.data} excluded={excluded} />
+          <Activity o={ov.data} report />
+        </div>
+      ) : ov.error ? (
+        <div className="metrics">
+          <Stat label="稳定使用企业" value={l.stable?.value ?? "—"} unit={l.stable ? "家" : undefined} foot={l.stable?.comparable ? <Delta pair={l.stable.comparable} pill /> : <span>上周不完整</span>} />
+          <Stat label="活跃企业" value={num(l.activeEnterprises.value)} foot={<Delta pair={pickPair(l.activeEnterprises, excluded)} pill />} />
+          <Stat label={insp ? "任务" : "耗点"} value={insp ? num(l.tasks.value) : compact(l.points.value)} foot={<Delta pair={p} pill />} />
+          <Stat label="下载率" value={pct(l.downloadRate.value, 1)} foot={<Delta pair={pickPair(l.downloadRate, excluded)} rate pill />} />
+        </div>
+      ) : (
+        <Skel h={560} r={12} />
+      )}
       <table className="cmp-table" style={{ marginTop: 16 }}>
         <thead>
           <tr>
@@ -115,11 +130,13 @@ const LineBlock = ({ l, excluded, week }: { l: ReportLine; excluded: boolean; we
           <div className="label">下跌</div>
           {l.falling.map((m) => (
             <div key={m.enterprise.id} className="mv">
-              <span className="n ellipsis">{m.enterprise.name}</span>
-              <span className="num">
-                {num(m.previous)} → {num(m.current)}
-              </span>
-              {m.reason && <span className="r">{m.reason}</span>}
+              <div className="mv-t">
+                <span className="n ellipsis">{m.enterprise.name}</span>
+                <span className="num">
+                  {num(m.previous)} → <b>{num(m.current)}</b>
+                </span>
+              </div>
+              {(why.get(m.enterprise.id) ?? m.reason) && <span className={why.has(m.enterprise.id) ? "r why" : "r"}>{why.get(m.enterprise.id) ?? m.reason}</span>}
             </div>
           ))}
           {!l.falling.length && <span className="faint">无</span>}
@@ -128,16 +145,19 @@ const LineBlock = ({ l, excluded, week }: { l: ReportLine; excluded: boolean; we
           <div className="label">上涨</div>
           {l.rising.map((m) => (
             <div key={m.enterprise.id} className="mv">
-              <span className="n ellipsis">{m.enterprise.name}</span>
-              <span className="num">
-                {num(m.previous)} → {num(m.current)}
-              </span>
-              {m.reason && <span className="r">{m.reason}</span>}
+              <div className="mv-t">
+                <span className="n ellipsis">{m.enterprise.name}</span>
+                <span className="num">
+                  {num(m.previous)} → <b>{num(m.current)}</b>
+                </span>
+              </div>
+              {(why.get(m.enterprise.id) ?? m.reason) && <span className={why.has(m.enterprise.id) ? "r why" : "r"}>{why.get(m.enterprise.id) ?? m.reason}</span>}
             </div>
           ))}
           {!l.rising.length && <span className="faint">无</span>}
         </div>
       </div>
+      </section>
     </>
   )
 }

@@ -2491,3 +2491,337 @@ button.stepper .step:hover,
   flex: 1;
   min-width: 0;
 }
+
+.pe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pe-box {
+  position: relative;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: box-shadow var(--t-fast) var(--ease);
+}
+
+.pe-box:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-ring);
+}
+
+.pe.ro .pe-box {
+  background: var(--bg-sunk);
+  box-shadow: none;
+}
+
+.pe-mirror,
+.pe-ta {
+  font: inherit;
+  font-size: 14px;
+  line-height: 24px;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  letter-spacing: 0;
+}
+
+.pe-mirror {
+  color: var(--ink);
+  pointer-events: none;
+  min-height: inherit;
+}
+
+.pe-ta {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 100%;
+  border: 0;
+  background: transparent;
+  resize: none;
+  outline: 0;
+  color: transparent;
+  caret-color: var(--ink);
+  overflow: hidden;
+}
+
+.pe-ta::selection {
+  background: var(--accent-ring);
+  color: transparent;
+}
+
+.pe-ta::placeholder {
+  color: var(--ink-4);
+}
+
+.pe-tok {
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  border-radius: 3px;
+  color: var(--accent-ink);
+  background: var(--accent-weak);
+  box-shadow: 0 0 0 1px var(--accent-weak-2);
+}
+
+.pe-tok.var {
+  color: #8a5a00;
+  background: var(--warn-weak);
+  box-shadow: 0 0 0 1px rgba(196, 140, 40, 0.25);
+}
+
+.pe-ins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pe-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--accent-ink);
+  background: var(--accent-weak);
+  transition: background var(--t-fast);
+}
+
+.pe-chip:hover {
+  background: var(--accent-weak-2);
+}
+
+.pe-chip.var {
+  color: #8a5a00;
+  background: var(--warn-weak);
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diff-sum {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.diff-sum .up {
+  color: var(--up);
+}
+
+.diff-sum .down {
+  color: var(--down);
+}
+
+.diff-body {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-body ins {
+  text-decoration: none;
+  background: var(--up-weak);
+  color: var(--up);
+  border-radius: 3px;
+}
+
+.diff-body del {
+  background: var(--down-weak);
+  color: var(--down);
+  border-radius: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.vl {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.vl-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.vl-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 10px;
+  padding: 8px 8px 8px 6px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.vl-item:hover {
+  background: var(--surface-hover);
+}
+
+.vl-item.on {
+  background: var(--accent-weak);
+}
+
+.vl-item::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+
+.vl-item:first-child::before {
+  top: 16px;
+}
+
+.vl-item:last-child::before {
+  bottom: calc(100% - 16px);
+}
+
+.vl-dot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin: 5px 0 0 2px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--ink-5);
+}
+
+.vl-item.cur .vl-dot {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  background: var(--accent);
+}
+
+.vl-item.on .vl-dot {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.vl-b {
+  min-width: 0;
+}
+
+.vl-t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.vl-t b {
+  font-weight: 600;
+}
+
+.vl-cur {
+  font-size: 11.5px;
+  padding: 0 6px;
+  line-height: 18px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.vl-note {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+.vl-more {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-4);
+  opacity: 0;
+}
+
+.vl-item:hover .vl-more {
+  opacity: 1;
+}
+
+.vl-more:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.vl-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-sunk);
+}
+
+.vl-dh {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.mk {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg-sunk);
+}
+
+.mk-b {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--ink-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.mk.sm .mk-b {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+
+.mk-b:hover {
+  background: var(--surface);
+}
+
+.mk-b.on {
+  background: var(--surface);
+  box-shadow: var(--sh-xs);
+}
+
+.mk-b.better.on {
+  color: var(--up);
+}
+
+.mk-b.worse.on {
+  color: var(--down);
+}
+
+.mk-b.usable.on {
+  color: #fff;
+  background: var(--up);
+}
+
+.mk-b .kbd-group {
+  opacity: 0.6;
+}

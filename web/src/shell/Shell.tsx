@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { useAlerts, useOverview, useTouches } from "../api/hooks"
+import { useAlerts, useOverview } from "../api/hooks"
+import { useFollowups } from "../api/next"
 import { useCtx, isoWeek } from "../lib/ctx"
 import { lineName } from "../lib/labels"
 import { navigate, type PageKey } from "../lib/route"
@@ -13,18 +14,18 @@ import { WeekPicker } from "./WeekPicker"
 const nav: { key: PageKey; label: string; icon: IconName; k: string }[] = [
   { key: "week", label: "本周", icon: "home", k: "W" },
   { key: "customers", label: "客户", icon: "users", k: "C" },
-  { key: "touches", label: "触达", icon: "send", k: "T" },
+  { key: "touches", label: "跟进", icon: "send", k: "T" },
   { key: "templates", label: "模板", icon: "template", k: "M" },
   { key: "analysis", label: "分析", icon: "chart", k: "A" },
   { key: "data", label: "数据", icon: "database", k: "D" },
 ]
 
-const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业", playground: "试验台", export: "导出" }
+const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业", playground: "试验台", export: "导出", print: "打印" }
 
 export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: () => void; order: PageKey[] }) => {
   const { route, line, week, meta, metaError, coverage, exIds } = useCtx()
   const ov = useOverview(line, week)
-  const touches = useTouches(line, week)
+  const fu = useFollowups(line, week)
   const alerts = useAlerts(line, week)
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
@@ -33,7 +34,7 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
     return () => window.removeEventListener("scroll", f)
   }, [])
   const alertN = alerts.data?.filter((a) => a.severity === 3 && !a.dismissed).length ?? ov.data?.alerts.filter((a) => a.severity === 3).reduce((s, a) => s + a.count, 0)
-  const todo = touches.data ? Object.values(touches.data.slots).flat().filter((t) => t.status === "draft" || t.status === "assigned").length : null
+  const todo = fu.data ? fu.data.items.filter((t) => t.state === "todo").length : null
   const counts: Partial<Record<PageKey, { n: number; alert?: boolean } | null>> = {
     customers: alertN ? { n: alertN, alert: true } : null,
     touches: todo ? { n: todo } : null,
@@ -83,6 +84,18 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
             <Icon name="report" />
             周报
             <Kbd keys={["G", "R"]} />
+          </a>
+          <a
+            href="/export"
+            className={cx(route.page === "export" && "on")}
+            onClick={(e) => {
+              e.preventDefault()
+              navigate({ page: "export" })
+            }}
+          >
+            <Icon name="download" />
+            导出中心
+            <Kbd keys={["G", "E"]} />
           </a>
         </nav>
         <div className="side-foot">

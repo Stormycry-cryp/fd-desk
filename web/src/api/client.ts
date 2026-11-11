@@ -1,7 +1,5 @@
 import type { Api, ApiError } from "@spec/contract"
-import type { ApiLegacy } from "./legacy"
-
-type AllApi = Api & ApiLegacy
+type AllApi = Api
 type Key = keyof AllApi
 type Spec<K extends Key> = AllApi[K]
 type Q<K extends Key> = Spec<K> extends { query: infer T } ? T : never

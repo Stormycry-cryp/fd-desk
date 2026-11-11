@@ -13,11 +13,12 @@ import { alertName, levelName, levelOrder, lineName, movementName, poolName, poo
 import { navigate } from "../lib/route"
 import { ago, compact, num, pct, time } from "../lib/format"
 import { useKey } from "../lib/useKey"
+import { download } from "../lib/download"
 import { Button, Checkbox, Input, Tabs, cx } from "../ui/controls"
 import { Avatar, Badge, Card, Delta, Empty, ErrorState, LevelTag, Rate, Skel } from "../ui/display"
 import { Spark } from "../ui/charts"
 import { Icon } from "../ui/icons"
-import { FilterChip, Menu, Tooltip, toast } from "../ui/overlays"
+import { FilterChip, Menu, Tooltip } from "../ui/overlays"
 import { MovementTag } from "./bits"
 
 type SortKey = "name" | "level" | "tasks" | "delta" | "rate" | "share" | "stuck" | "last" | "ppd"
@@ -35,21 +36,7 @@ const sorters: Record<SortKey, (r: RosterRow) => number | string> = {
   ppd: (r) => r.video?.pointsPerDownloaded ?? -1,
 }
 
-export const exportFile = async (href: string, name: string) => {
-  try {
-    const response = await fetch(href)
-    if (!response.ok) throw new Error((await response.json()).message)
-    if (!(response.headers.get("content-type") ?? "").includes("spreadsheetml")) throw new Error("导出接口未返回 Excel 文件")
-    const objectUrl = URL.createObjectURL(await response.blob())
-    const a = document.createElement("a")
-    a.href = objectUrl
-    a.download = name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-  } catch (e) {
-    toast((e as Error).message, { tone: "error" })
-  }
-}
+export const exportFile = download
 
 export const CustomersPage = () => {
   const { line, week, route } = useCtx()

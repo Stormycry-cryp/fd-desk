@@ -101,7 +101,7 @@ export const TaskViewer = ({ tasks, index, onClose, extra }: { tasks: Task[]; in
                   <IconButton size="xs" icon="copy" label="复制提示词" onClick={() => copyText(t.prompt, "提示词已复制")} />
                 </div>
                 <div className="prompt">{t.prompt || <span className="faint">无</span>}</div>
-                {t.line === "inspiration" && !!t.inputs.length && <Button size="sm" icon="image" style={{ marginTop: 12 }} onClick={() => (onClose(), navigate({ page: "playground", tpl: null, run: null, q: t.rowKey }))}>去试验台</Button>}
+                {t.line === "inspiration" && !!t.inputs.length && <Button size="sm" icon="image" style={{ marginTop: 12 }} onClick={() => (onClose(), navigate({ page: "playground", tpl: null, run: null, q: `${t.enterprise.id}:${t.rowKey}` }))}>去试验台</Button>}
               </div>
               {t.inputs.length > 0 && (
                 <div className="sec">

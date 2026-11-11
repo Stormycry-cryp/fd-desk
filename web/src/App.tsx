@@ -7,8 +7,8 @@ import { Palette } from "./shell/Palette"
 import { Toaster } from "./ui/overlays"
 import { WeekPage } from "./pages/WeekPage"
 import { CustomersPage } from "./pages/CustomersPage"
-import { TouchesPage } from "./pages/TouchesPage"
-import { TemplatesPage } from "./pages/TemplatesPage"
+import { FollowupsPage } from "./pages/FollowupsPage"
+import { TemplatesPage } from "./pages/templates/TemplatesPage"
 import { AnalysisPage } from "./pages/AnalysisPage"
 import { DataPage } from "./pages/DataPage"
 import { ReportPage } from "./pages/ReportPage"
@@ -16,17 +16,19 @@ import { EnterprisePage } from "./pages/EnterprisePage"
 import { EnterpriseDrawer } from "./pages/enterprise/EnterpriseView"
 import { KitPage } from "./pages/KitPage"
 import { ProfilePreview } from "./pages/kit/ProfilePreview"
-import { PlaygroundPage } from "./pages/PlaygroundPage"
+import { PlaygroundPage } from "./pages/playground/PlaygroundPage"
 import { ExportPage } from "./pages/ExportPage"
+import { PrintPage } from "./pages/print/PrintPage"
 import { useJobWatcher } from "./api/next"
 import { Button } from "./ui/controls"
 import { Empty, ErrorState } from "./ui/display"
 import { PageSkeleton } from "./pages/common"
+import { AskPanel } from "./shell/AskPanel"
 
 const pages: Record<PageKey | "kit", () => React.ReactNode> = {
   week: WeekPage,
   customers: CustomersPage,
-  touches: TouchesPage,
+  touches: FollowupsPage,
   templates: TemplatesPage,
   analysis: AnalysisPage,
   data: DataPage,
@@ -34,6 +36,7 @@ const pages: Record<PageKey | "kit", () => React.ReactNode> = {
   enterprise: EnterprisePage,
   playground: PlaygroundPage,
   export: ExportPage,
+  print: PrintPage,
   kit: KitPage,
 }
 
@@ -61,14 +64,14 @@ export const App = () => {
     if (e.key === "/") (e.preventDefault(), setPalette(true))
     if (e.key === "g") {
       const f = (ev: KeyboardEvent) => {
-        const map: Record<string, PageKey> = { w: "week", c: "customers", t: "touches", m: "templates", a: "analysis", d: "data", r: "report" }
+        const map: Record<string, PageKey> = { w: "week", c: "customers", t: "touches", m: "templates", a: "analysis", d: "data", r: "report", e: "export" }
         if (map[ev.key]) navigate({ page: map[ev.key] })
       }
       window.addEventListener("keydown", f, { once: true })
     }
   })
   useEffect(() => {
-    const titles: Record<string, string> = { week: "本周", customers: "客户", touches: "触达", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业" }
+    const titles: Record<string, string> = { export: "导出", playground: "试验台", print: "打印", week: "本周", customers: "客户", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业" }
     document.title = `${titles[route.page] ?? ""} · FD 客户台`
     window.scrollTo({ top: 0 })
   }, [route.page])
@@ -76,7 +79,7 @@ export const App = () => {
   const content = metaError ? <ErrorState error={metaError} retry={() => refreshMeta()} /> : metaLoading || !meta ? <PageSkeleton /> : !week && route.page !== "data" && !kit ? <Empty title="尚未导入数据" action={<Button onClick={() => navigate({ page: "data" })}>导入数据</Button>} /> : <Page key={kit ? "kit" : route.page} />
   return (
     <>
-      {route.page === "report" && !kit ? (
+      {(route.page === "report" || route.page === "print") && !kit ? (
         content
       ) : (
         <Shell onSearch={() => setPalette(true)} order={order}>
@@ -84,6 +87,7 @@ export const App = () => {
         </Shell>
       )}
       {!kit && route.ent && route.page !== "enterprise" && <EnterpriseDrawer id={route.ent} />}
+      {!kit && route.page !== "report" && route.page !== "print" && <AskPanel />}
       <Palette open={palette} onClose={() => setPalette(false)} />
       <Toaster />
     </>
