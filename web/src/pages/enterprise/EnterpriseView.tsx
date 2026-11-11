@@ -5,21 +5,18 @@ import { useSectionFocus } from "../../lib/locate"
 import { AnnotationRail, AnnotationScope, AnnotationTimeline, Annotatable, ComposerPopover } from "../../ui/annotate"
 import { TagPicker } from "../../ui/insight"
 import { ProfileTab } from "./Profile"
-import { fdUrl } from "../../lib/fd"
-import type { Alert, EnterpriseDetail, Line, LineDetail, Task } from "@spec/contract"
-import { useChains, useDaily, useEnterprise, usePutNextAction } from "../../api/hooks"
+import type { Alert, EnterpriseDetail, Line, LineDetail } from "@spec/contract"
+import { useDaily, useEnterprise, usePutNextAction } from "../../api/hooks"
 import { useCtx } from "../../lib/ctx"
 import { alertName, failureName, lineName, offerName, patternName, poolAction, poolName, slotName } from "../../lib/labels"
 import { navigate, type EntTab } from "../../lib/route"
-import { ago, compact, num, pct, time, weekLabel, weekShort } from "../../lib/format"
+import { ago, compact, num, pct, weekLabel, weekShort } from "../../lib/format"
 import { Button, IconButton, Segmented, Tabs } from "../../ui/controls"
-import { Avatar, Badge, Empty, ErrorState, InlineEdit, LevelTag, Phone, Rate, Sev, Skel, SourceTag, Stat, Thumb, Delta } from "../../ui/display"
+import { Avatar, Badge, Empty, ErrorState, InlineEdit, LevelTag, Phone, Rate, Sev, Skel, SourceTag, Stat, Delta } from "../../ui/display"
 import { Heatmap, StackBar, TrendChart } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
 import { Drawer, Menu, Tooltip, toast } from "../../ui/overlays"
 import { MovementTag, PoolTag, StatusTag } from "../bits"
-import { RecordsTab } from "./Records"
-import { TaskViewer } from "./TaskViewer"
 
 export const EnterpriseDrawer = ({ id }: { id: string }) => {
   const [open, setOpen] = useState(true)
@@ -71,7 +68,7 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
   const ld = d.lines[dataLine]
   const list = anns.data ?? prof?.annotations ?? NO_ANN
   const openCount = list.filter((a) => !a.resolved).length
-  const setTab = (t: EntTab) => navigate({ tab: t }, { replace: true })
+  const setTab = (t: EntTab) => (t === "tasks" ? navigate({ page: "cases", ents: [d.enterprise.id], line: dataLine, ent: null }) : navigate({ tab: t }, { replace: true }))
   const setScope = (s: Scope) => navigate({ scope: s === "all" ? null : s }, { replace: true })
   const none = <Empty icon="layers" title={`没有用过${lineName[dataLine]}`} />
   const body =
@@ -80,21 +77,9 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
     ) : tab === "data" ? (
       ld ? <LineBody d={d} ld={ld} week={week!} /> : none
     ) : tab === "tasks" ? (
-      <>
-        {ld && scope !== "all" && <Chains id={d.enterprise.id} line={ld.line} week={week!} />}
-        <div className="ent-section">
-          <RecordsTab
-            key={`${d.enterprise.id}:${scope}`}
-            id={d.enterprise.id}
-            scope={scope}
-            lines={available}
-            anns={list}
-            kinds={(prof?.facts[scope] ?? prof?.facts.all)?.intents.map((x) => x.key) ?? ld?.breakdown.map((b) => b.key) ?? []}
-            models={(prof?.facts[scope] ?? prof?.facts.all)?.models.map((x) => x.model) ?? ld?.models.map((m) => m.model) ?? []}
-            users={(prof?.facts[scope] ?? prof?.facts.all)?.members.map((m) => ({ id: m.id, name: m.name })) ?? ld?.members.map((m) => ({ id: m.id, name: m.name })) ?? []}
-          />
-        </div>
-      </>
+      <div style={{ padding: "40px 24px" }}>
+        <Empty icon="layers" title="记录在「记录」页" action={<Button variant="primary" icon="arrowRight" onClick={() => navigate({ page: "cases", ents: [d.enterprise.id], line: dataLine, ent: null })}>打开这家企业的记录</Button>} />
+      </div>
     ) : (
       <div style={{ padding: "20px 24px 32px" }}>{anns.error && !prof ? <ErrorState error={anns.error} /> : <AnnotationTimeline list={list} />}</div>
     )
@@ -110,7 +95,7 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
               options={[
                 { value: "profile" as EntTab, label: "档案" },
                 { value: "data" as EntTab, label: "数据" },
-                { value: "tasks" as EntTab, label: "记录" },
+                { value: "tasks" as EntTab, label: <span className="row" style={{ gap: 4 }}>记录<Icon name="arrowUpRight" size="xs" /></span> },
                 { value: "notes" as EntTab, label: "批注", count: openCount || undefined },
               ]}
             />
@@ -333,62 +318,6 @@ const Patterns = ({ ld }: { ld: LineDetail }) => {
           </span>
         ))}
       </div>
-    </div>
-  )
-}
-
-const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) => {
-  const q = useChains({ line, week, enterprise: id, minLength: 3, downloaded: false })
-  const [view, setView] = useState<{ tasks: Task[]; i: number } | null>(null)
-  const items = q.data?.items ?? []
-  if (q.error) return <ErrorState error={q.error} retry={() => q.refetch()} />
-  return (
-    <div className="ent-section">
-      <h4>
-        没出来的连续尝试
-        <span className="sub">同一张图连续 3 次以上，没有下载</span>
-        <span className="spacer" />
-        {q.data && <span className="faint num">{q.data.total} 条</span>}
-      </h4>
-      {q.isLoading ? (
-        <Skel h={64} />
-      ) : items.length ? (
-        <div>
-          {items.slice(0, 4).map((c) => (
-            <div key={c.id} className="chain">
-              <div className="meta">
-                <span style={{ color: "var(--ink-2)" }}>{c.user?.name ?? "—"}</span>
-                <span className="num">
-                  {time(c.startedAt)} · {c.length} 次
-                </span>
-                <span className="num">{c.points} 点</span>
-                {fdUrl(c.tasks[0]) && (
-                  <a className="fd-open" href={fdUrl(c.tasks[0])!} target="_blank" rel="noopener" style={{ fontSize: 12.5 }}>
-                    在 FD 中打开
-                    <Icon name="external" size="xs" />
-                  </a>
-                )}
-              </div>
-              <div className="steps">
-                {c.tasks.slice(0, 7).map((t, i) => (
-                  <span key={t.rowKey} className="row" style={{ gap: 4 }}>
-                    {i > 0 && <Icon name="chevRight" size="xs" className="sep" />}
-                    <Tooltip content={<span style={{ display: "block", maxWidth: 260 }}>{t.prompt}</span>}>
-                      <span>
-                        <Thumb media={t.outputs[0] ?? t.inputs[0]} w={52} ratio={4 / 3} onClick={() => setView({ tasks: c.tasks, i })} dim={!t.outputs[0]} />
-                      </span>
-                    </Tooltip>
-                  </span>
-                ))}
-                {c.tasks.length > 7 && <span className="faint" style={{ fontSize: 13, marginLeft: 4 }}>+{c.tasks.length - 7}</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <span className="faint">没有</span>
-      )}
-      <TaskViewer tasks={view?.tasks ?? []} index={view?.i ?? null} onClose={() => setView(null)} />
     </div>
   )
 }

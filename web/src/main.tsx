@@ -7,6 +7,7 @@ import "./styles/components.css"
 import "./styles/data.css"
 import "./styles/layout.css"
 import "./styles/pages.css"
+import "./styles/cases.css"
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30000, refetchOnWindowFocus: false } } })
 

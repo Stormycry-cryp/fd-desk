@@ -44,6 +44,7 @@ export const exportKindName: Record<ExportKind, string> = {
   analysis_failures: "失败明细",
   tasks: "任务明细",
   records: "生成记录",
+  cases: "记录",
 }
 
 const qs = (p: Record<string, string | undefined | null>) => {

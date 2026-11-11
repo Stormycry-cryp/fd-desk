@@ -21,6 +21,7 @@ export const stepName: Record<JobKind, string> = {
   draft_write: "模板撰写",
   finding_recheck: "结论核对",
   record_analysis: "记录分析",
+  case_analysis: "Case 分析",
   export: "导出",
 }
 

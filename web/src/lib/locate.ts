@@ -12,6 +12,7 @@ const pageMap: Record<Locator["page"], PageKey> = {
   analysis: "analysis",
   data: "data",
   export: "export",
+  cases: "cases",
 }
 
 export const locate = (l: Locator) => {

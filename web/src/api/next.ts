@@ -66,6 +66,7 @@ const affects: Record<JobKind, QueryKey[]> = {
   draft_write: [["GET /api/templates"], ["GET /api/templates/:id"], ["GET /api/templates/opportunities"]],
   finding_recheck: [["GET /api/findings"]],
   record_analysis: [["GET /api/records/analyses"]],
+  case_analysis: [["GET /api/cases/analyses"], ["case-analyses"]],
   export: [],
 }
 

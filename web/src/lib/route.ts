@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react"
 import type { AlertKind, Level, Line, Movement, Pool } from "@spec/contract"
 import type { TrendKind } from "@spec/contract"
 
-export type PageKey = "week" | "customers" | "touches" | "templates" | "analysis" | "data" | "report" | "enterprise" | "playground" | "export" | "print"
+export type PageKey = "week" | "customers" | "cases" | "touches" | "templates" | "analysis" | "data" | "report" | "enterprise" | "playground" | "export" | "print"
 export type EntTab = "profile" | "data" | "tasks" | "notes"
 export type EntScope = "all" | Line
 export type TplKind = "official" | "custom"
@@ -33,9 +33,13 @@ export interface Route {
   tpl: string | null
   run: string | null
   ids: string[]
+  ents: string[]
+  outcome: string[]
+  unit: "chain" | "task" | null
+  batch: string | null
 }
 
-const pages: PageKey[] = ["week", "customers", "touches", "templates", "analysis", "data", "report", "enterprise", "playground", "export", "print"]
+const pages: PageKey[] = ["week", "customers", "cases", "touches", "templates", "analysis", "data", "report", "enterprise", "playground", "export", "print"]
 
 const list = (v: string | null) => (v ? v.split(",").filter(Boolean) : [])
 
@@ -69,6 +73,10 @@ const read = (): Route => {
     tpl: page === "playground" || page === "print" ? seg[1] ?? s.get("tpl") : s.get("tpl"),
     ids: list(s.get("ids")),
     run: s.get("run"),
+    ents: list(s.get("ents")),
+    outcome: list(s.get("outcome")),
+    unit: s.get("unit") === "task" ? "task" : s.get("unit") === "chain" ? "chain" : null,
+    batch: s.get("batch"),
   }
 }
 
@@ -102,6 +110,12 @@ const write = (r: Route, replace: boolean) => {
   }
   if (r.run) s.set("run", r.run)
   if (r.ids.length) s.set("ids", r.ids.join(","))
+  if (r.page === "cases") {
+    if (r.ents.length) s.set("ents", r.ents.join(","))
+    if (r.outcome.length) s.set("outcome", r.outcome.join(","))
+    if (r.unit) s.set("unit", r.unit)
+    if (r.batch) s.set("batch", r.batch)
+  }
   const path = r.page === "enterprise" ? `/enterprise/${r.ent ?? ""}` : r.page === "playground" || r.page === "print" ? `/${r.page}/${r.tpl ?? ""}` : r.page === "week" ? "/" : `/${r.page}`
   const qs = s.toString()
   const url = qs ? `${path}?${qs}` : path
@@ -133,7 +147,7 @@ export const navigate = (patch: Partial<Route>, opts: { replace?: boolean } = {}
   const base = entChanged && patch.tab === undefined ? { ...next, tab: "profile" as EntTab, section: patch.section ?? null } : next
   write(
     filtersReset
-      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], trend: patch.trend ?? [], models: patch.models ?? [], intent: patch.intent ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, ids: patch.ids ?? [], tpl: "tpl" in patch ? patch.tpl ?? null : patch.page === "playground" ? current.tpl : null }
+      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], trend: patch.trend ?? [], models: patch.models ?? [], intent: patch.intent ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, ids: patch.ids ?? [], ents: patch.ents ?? [], outcome: patch.outcome ?? [], unit: patch.unit ?? null, batch: patch.batch ?? null, tpl: "tpl" in patch ? patch.tpl ?? null : patch.page === "playground" ? current.tpl : null }
       : base,
     opts.replace ?? false,
   )

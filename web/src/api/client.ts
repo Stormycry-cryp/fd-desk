@@ -37,18 +37,17 @@ const build = (key: string, opts: CallOpts<any>) => {
 
 export const url = <K extends Key>(key: K, opts: CallOpts<K> = {}) => build(key, opts).url
 
-export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promise<Res<K>> => {
-  const { method, url } = build(key, opts)
-  const isForm = typeof FormData !== "undefined" && opts.body instanceof FormData
+const send = async (method: string, url: string, body: unknown) => {
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData
   const res = await fetch(url, {
     method,
-    headers: opts.body != null && !isForm ? { "content-type": "application/json" } : undefined,
-    body: opts.body == null ? undefined : isForm ? (opts.body as unknown as FormData) : JSON.stringify(opts.body),
+    headers: body != null && !isForm ? { "content-type": "application/json" } : undefined,
+    body: body == null ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
   })
   const type = res.headers.get("content-type") ?? ""
-  if (res.status === 204) return null as Res<K>
+  if (res.status === 204) return null
   if (!type.includes("json")) {
-    if (res.ok && !type.includes("html")) return (await res.blob()) as Res<K>
+    if (res.ok && !type.includes("html")) return await res.blob()
     throw new RequestError(res.status, "invalid_response", "本机后端返回了无效响应")
   }
   const data = await res.json()
@@ -58,5 +57,17 @@ export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promi
     if (absent) throw new RequestError(404, "not_implemented", "后端尚未提供")
     throw new RequestError(res.status, err.code ?? "error", err.message ?? res.statusText)
   }
-  return data as Res<K>
+  return data
 }
+
+export const call = async <K extends Key>(key: K, opts: CallOpts<K> = {}): Promise<Res<K>> => {
+  const { method, url } = build(key, opts)
+  return (await send(method, url, opts.body)) as Res<K>
+}
+
+export const request = async <T>(key: string, opts: { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown } = {}): Promise<T> => {
+  const { method, url } = build(key, opts as CallOpts<any>)
+  return (await send(method, url, opts.body)) as T
+}
+
+export const rawUrl = (key: string, query: Record<string, unknown>) => build(key, { query } as CallOpts<any>).url

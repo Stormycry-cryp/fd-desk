@@ -14,13 +14,14 @@ import { WeekPicker } from "./WeekPicker"
 const nav: { key: PageKey; label: string; icon: IconName; k: string }[] = [
   { key: "week", label: "本周", icon: "home", k: "W" },
   { key: "customers", label: "客户", icon: "users", k: "C" },
+  { key: "cases", label: "记录", icon: "layers", k: "B" },
   { key: "touches", label: "跟进", icon: "send", k: "T" },
   { key: "templates", label: "模板", icon: "template", k: "M" },
   { key: "analysis", label: "分析", icon: "chart", k: "A" },
   { key: "data", label: "数据", icon: "database", k: "D" },
 ]
 
-const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业", playground: "试验台", export: "导出", print: "打印" }
+const crumbs: Record<PageKey, string> = { week: "本周", customers: "客户", cases: "记录", touches: "跟进", templates: "模板", analysis: "分析", data: "数据", report: "周报", enterprise: "企业", playground: "试验台", export: "导出", print: "打印" }
 
 export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: () => void; order: PageKey[] }) => {
   const { route, line, week, meta, metaError, coverage, exIds } = useCtx()
