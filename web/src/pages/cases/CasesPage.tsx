@@ -486,16 +486,15 @@ export const ListSkeleton = ({ grid }: { grid?: boolean }) =>
           <span />
           <div className="cx-media">
             <div className="cx-ins">
-              <Skel w={56} h={56} r={7} />
-              <Skel w={56} h={56} r={7} />
+              <Skel w={84} h={112} r={8} />
+              <Skel w={84} h={112} r={8} />
             </div>
-            <Skel w={76} h={76} r={9} style={{ marginLeft: 26 }} />
+            <Skel w={120} h={160} r={10} style={{ marginLeft: 26 }} />
           </div>
           <div className="stack" style={{ gap: 10 }}>
             <Skel h={14} w="70%" />
             <Skel h={12} w="45%" />
           </div>
-          <span />
           <span />
         </div>
       ))}

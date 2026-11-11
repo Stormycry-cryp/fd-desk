@@ -341,7 +341,7 @@
 .cx-row {
   position: relative;
   display: grid;
-  grid-template-columns: 24px 348px minmax(0, 1fr) auto 184px;
+  grid-template-columns: 24px 448px minmax(0, 1fr) 184px;
   align-items: center;
   gap: 16px;
   padding: 12px 16px 12px 16px;
@@ -404,15 +404,15 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 4px;
-  width: 236px;
+  gap: 5px;
+  width: 262px;
 }
 
 .cx-more {
   display: grid;
   place-items: center;
-  min-width: 28px;
-  height: 56px;
+  min-width: 30px;
+  height: 112px;
   padding: 0 4px;
   border-radius: 7px;
   background: var(--bg-sunk);
@@ -421,7 +421,7 @@
 }
 
 .cx-more.sm {
-  height: 30px;
+  height: 58px;
   min-width: 22px;
   border-radius: 5px;
 }
@@ -429,8 +429,8 @@
 .cx-noin {
   display: grid;
   place-items: center;
-  width: 56px;
-  height: 56px;
+  width: 84px;
+  height: 112px;
   border-radius: 7px;
   background: var(--bg-sunk);
   color: var(--ink-4);
@@ -440,6 +440,16 @@
 .cx-arrow {
   color: var(--ink-5);
   flex: none;
+}
+
+.cx-row:has(.cx-mid) {
+  grid-template-columns: 24px 448px minmax(0, 1fr) auto 184px;
+}
+
+@media (max-width: 1380px) {
+  .cx-row:has(.cx-mid) {
+    grid-template-columns: 24px 360px minmax(0, 1fr) auto 150px;
+  }
 }
 
 .cx-mid {
@@ -755,7 +765,7 @@
 
 .cx-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 14px;
   padding: 14px;
   border-radius: 0 0 var(--r-lg) var(--r-lg);
@@ -800,6 +810,10 @@
   bottom: 8px;
   display: flex;
   gap: 4px;
+}
+
+.cx-card-ins .peek-a {
+  display: block;
 }
 
 .cx-card-ins .thumb {
@@ -1965,15 +1979,19 @@
   }
 
   .cx-row {
-    grid-template-columns: 24px 288px minmax(0, 1fr) auto 150px;
+    grid-template-columns: 24px 360px minmax(0, 1fr) 150px;
     gap: 12px;
   }
 
   .cx-ins {
-    width: 176px;
+    width: 178px;
   }
 
-  .cx-ins .thumb:nth-child(n + 4) {
+  .cx-ins .peek-a:nth-child(n + 3) {
+    display: none;
+  }
+
+  .cx-mid .cx-mid-i:nth-child(n + 4) {
     display: none;
   }
 
@@ -2016,4 +2034,58 @@
 .cxv-prompt .diff {
   background: none;
   padding: 0;
+}
+
+.peek-a {
+  display: inline-flex;
+  flex: none;
+}
+
+.peek {
+  position: fixed;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--sh-xl), 0 0 0 1px var(--line-2);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 0.14s var(--ease-out), transform 0.14s var(--ease-out);
+}
+
+.peek.in {
+  opacity: 1;
+  transform: none;
+}
+
+.peek img {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.peek-l {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(24, 24, 27, 0.66);
+  color: #fff;
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.peek-load {
+  position: absolute;
+  inset: 6px;
+  border-radius: 10px;
+  background: var(--bg-sunk);
 }

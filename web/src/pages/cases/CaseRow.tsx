@@ -4,6 +4,7 @@ import { levelName, movementName } from "../../lib/labels"
 import { time } from "../../lib/format"
 import { Checkbox, cx } from "../../ui/controls"
 import { Thumb } from "../../ui/display"
+import { Peek } from "../../ui/peek"
 import { Icon } from "../../ui/icons"
 import { Tooltip } from "../../ui/overlays"
 import type { CaseRating, CaseReview, CaseTag, Row, Step } from "./types"
@@ -99,15 +100,19 @@ export const CaseLine = memo(function CaseLine({ r, rv, notes, on, focus, tags, 
       </span>
       <div className="cx-media">
         <div className="cx-ins">
-          {ins.slice(0, 4).map((m, i) => (
-            <Thumb key={i} media={m} w={56} ratio={1} radius={7} />
+          {ins.slice(0, 3).map((m, i) => (
+            <Peek key={i} media={m} label={`输入 ${i + 1}`}>
+              <Thumb media={m} w={84} ratio={4 / 3} radius={8} />
+            </Peek>
           ))}
-          {ins.length > 4 && <span className="cx-more num">+{ins.length - 4}</span>}
+          {ins.length > 3 && <span className="cx-more num">+{ins.length - 3}</span>}
           {!ins.length && <span className="cx-noin">无输入图</span>}
         </div>
         <Icon name="arrowRight" size="xs" className="cx-arrow" />
         <div className={cx("cx-res", r.last.result)}>
-          <Thumb media={out} w={76} ratio={1} radius={9} dim={!out} />
+          <Peek media={out} label={r.stepCount > 1 ? `第 ${r.stepCount} 步结果` : "结果"}>
+            <Thumb media={out} w={120} ratio={4 / 3} radius={10} dim={!out} />
+          </Peek>
           {r.stepCount > 1 && <span className="cx-res-n num">{r.stepCount} 步</span>}
           <StepDot s={r.last} />
         </div>
@@ -126,14 +131,14 @@ export const CaseLine = memo(function CaseLine({ r, rv, notes, on, focus, tags, 
         <div className="cx-mid">
           {(r.steps ?? []).slice(0, -1).slice(-5).map((st) => (
             <span key={st.rowKey} className={cx("cx-mid-i", st.result)}>
-              <Thumb media={st.outputs[0]} w={30} ratio={1} radius={5} dim={!st.outputs[0]} />
+              <Peek media={st.outputs[0]} label={`第 ${st.index + 1} 步`}>
+                <Thumb media={st.outputs[0]} w={44} ratio={4 / 3} radius={6} dim={!st.outputs[0]} />
+              </Peek>
             </span>
           ))}
           {r.stepCount - 1 > 5 && <span className="cx-more sm num">+{r.stepCount - 6}</span>}
         </div>
-      ) : (
-        <span />
-      )}
+      ) : null}
       <div className="cx-side" onClick={(e) => e.stopPropagation()}>
         <RatingPills value={rv?.rating} onPick={onRate} size="sm" />
         <div className="cx-side-b">
@@ -169,10 +174,12 @@ export const CaseCard = memo(function CaseCard({ r, rv, notes, on, focus, tags, 
   return (
     <div className={cx("cx-card", r.outcome, on && "on", focus && "focus")} role="button" tabIndex={-1} onClick={onOpen} data-key={`${r.unit}:${r.id}`}>
       <div className="cx-card-m">
-        <Thumb media={out ?? r.first.inputs[0]} w="100%" ratio={1} radius={0} dim={!out} />
+        <Thumb media={out ?? r.first.inputs[0]} w="100%" ratio={4 / 3} radius={0} dim={!out} />
         <span className="cx-card-ins">
           {r.first.inputs.slice(0, 3).map((m, i) => (
-            <Thumb key={i} media={m} w={30} ratio={1} radius={5} />
+            <Peek key={i} media={m} label={`输入 ${i + 1}`}>
+              <Thumb media={m} w={40} ratio={4 / 3} radius={6} />
+            </Peek>
           ))}
         </span>
         <span className="cx-card-tl">
