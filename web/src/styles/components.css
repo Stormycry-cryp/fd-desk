@@ -2486,3 +2486,8 @@ button.stepper .step:hover,
   background: var(--surface);
   box-shadow: inset 0 0 0 2px #e0b464;
 }
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}

@@ -25,6 +25,7 @@ export const patternName: Record<Pattern, string> = { retry: "重试", tweak: "�
 
 export const alertName: Record<AlertKind, string> = {
   drop: "掉量",
+  trend: "多周下滑",
   vanished: "消失",
   stuck: "卡住",
   cold_start: "新客未下载",

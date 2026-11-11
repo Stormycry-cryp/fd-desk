@@ -28,6 +28,7 @@ export const locate = (l: Locator) => {
     ...(f.level ? { level: f.level.split(",") as never } : {}),
     ...(f.movement ? { movement: f.movement.split(",") as never } : {}),
     ...(f.alert ? { alert: f.alert.split(",") as never } : {}),
+    ...(f.trend ? { trend: f.trend.split(",") as never } : {}),
     ...(f.pool ? { pool: f.pool as never } : {}),
     ...(f.tags ? { tags: f.tags.split(",") } : {}),
   })

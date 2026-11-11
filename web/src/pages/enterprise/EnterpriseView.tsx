@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import type { Annotation, Profile, Scope } from "@spec/contract"
 import { useAnnotations, useProfile, useSetHeadline, useSetTag } from "../../api/next"
 import { useSectionFocus } from "../../lib/locate"
@@ -6,19 +6,19 @@ import { AnnotationRail, AnnotationScope, AnnotationTimeline, Annotatable, Compo
 import { TagPicker } from "../../ui/insight"
 import { ProfileTab } from "./Profile"
 import { fdUrl } from "../../lib/fd"
-import type { Alert, EnterpriseDetail, Line, LineDetail, SampleReason, Task } from "@spec/contract"
-import { useChains, useDaily, useEnterprise, useTasks, usePutNextAction } from "../../api/hooks"
+import type { Alert, EnterpriseDetail, Line, LineDetail, Task } from "@spec/contract"
+import { useChains, useDaily, useEnterprise, usePutNextAction } from "../../api/hooks"
 import { useCtx } from "../../lib/ctx"
-import { alertName, failureName, lineName, offerName, patternName, poolAction, poolName, sampleReasonName, slotName } from "../../lib/labels"
+import { alertName, failureName, lineName, offerName, patternName, poolAction, poolName, slotName } from "../../lib/labels"
 import { navigate, type EntTab } from "../../lib/route"
 import { ago, compact, num, pct, time, weekLabel, weekShort } from "../../lib/format"
 import { Button, IconButton, Segmented, Tabs } from "../../ui/controls"
 import { Avatar, Badge, Empty, ErrorState, InlineEdit, LevelTag, Phone, Rate, Sev, Skel, SourceTag, Stat, Thumb, Delta } from "../../ui/display"
 import { Heatmap, StackBar, TrendChart } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
-import { Drawer, Menu, Select, Tooltip, toast } from "../../ui/overlays"
+import { Drawer, Menu, Tooltip, toast } from "../../ui/overlays"
 import { MovementTag, PoolTag, StatusTag } from "../bits"
-import { TaskCard } from "./TaskCard"
+import { RecordsTab } from "./Records"
 import { TaskViewer } from "./TaskViewer"
 
 export const EnterpriseDrawer = ({ id }: { id: string }) => {
@@ -53,7 +53,6 @@ export const EnterpriseDrawer = ({ id }: { id: string }) => {
 
 const NO_ANN: Annotation[] = []
 
-const sampleOrder: SampleReason[] = ["stuck", "not_downloaded", "batch", "downloaded", "failed"]
 
 export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => {
   const { line: ctxLine, week, route } = useCtx()
@@ -81,14 +80,21 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
     ) : tab === "data" ? (
       ld ? <LineBody d={d} ld={ld} week={week!} /> : none
     ) : tab === "tasks" ? (
-      ld ? (
-        <>
-          <Chains id={d.enterprise.id} line={ld.line} week={week!} />
-          <Samples key={`${d.enterprise.id}:${ld.line}:${week}`} id={d.enterprise.id} line={ld.line} week={week!} ld={ld} />
-        </>
-      ) : (
-        none
-      )
+      <>
+        {ld && scope !== "all" && <Chains id={d.enterprise.id} line={ld.line} week={week!} />}
+        <div className="ent-section">
+          <RecordsTab
+            key={`${d.enterprise.id}:${scope}`}
+            id={d.enterprise.id}
+            scope={scope}
+            lines={available}
+            anns={list}
+            kinds={(prof?.facts[scope] ?? prof?.facts.all)?.intents.map((x) => x.key) ?? ld?.breakdown.map((b) => b.key) ?? []}
+            models={(prof?.facts[scope] ?? prof?.facts.all)?.models.map((x) => x.model) ?? ld?.models.map((m) => m.model) ?? []}
+            users={(prof?.facts[scope] ?? prof?.facts.all)?.members.map((m) => ({ id: m.id, name: m.name })) ?? ld?.members.map((m) => ({ id: m.id, name: m.name })) ?? []}
+          />
+        </div>
+      </>
     ) : (
       <div style={{ padding: "20px 24px 32px" }}>{anns.error && !prof ? <ErrorState error={anns.error} /> : <AnnotationTimeline list={list} />}</div>
     )
@@ -104,7 +110,7 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
               options={[
                 { value: "profile" as EntTab, label: "档案" },
                 { value: "data" as EntTab, label: "数据" },
-                { value: "tasks" as EntTab, label: "任务" },
+                { value: "tasks" as EntTab, label: "记录" },
                 { value: "notes" as EntTab, label: "批注", count: openCount || undefined },
               ]}
             />
@@ -383,69 +389,6 @@ const Chains = ({ id, line, week }: { id: string; line: Line; week: string }) =>
         <span className="faint">没有</span>
       )}
       <TaskViewer tasks={view?.tasks ?? []} index={view?.i ?? null} onClose={() => setView(null)} />
-    </div>
-  )
-}
-
-const Samples = ({ id, line, week, ld }: { id: string; line: Line; week: string; ld: LineDetail }) => {
-  const [reason, setReason] = useState<SampleReason | "all">("all")
-  const [mode, setMode] = useState<"sample" | "full">("sample")
-  const [offset, setOffset] = useState(0)
-  const [model, setModel] = useState("all")
-  const [category, setCategory] = useState("all")
-  const [status, setStatus] = useState("all")
-  const [user, setUser] = useState("all")
-  const q = useTasks({ line, week, enterprise: id, sample: mode === "sample" ? 2 : undefined, limit: 50, offset: mode === "sample" ? undefined : offset, model: mode === "full" && model !== "all" ? model : undefined, intent: mode === "full" && line === "inspiration" && category !== "all" ? category : undefined, mode: mode === "full" && line === "video" && category !== "all" ? category : undefined, downloaded: mode === "full" && (status === "downloaded" || status === "not_downloaded") ? status === "downloaded" : undefined, failed: mode === "full" && status === "failed" ? true : undefined, user: mode === "full" && user !== "all" ? user : undefined })
-  const [view, setView] = useState<number | null>(null)
-  const items = q.data?.items ?? []
-  const counts = useMemo(() => {
-    const m = new Map<SampleReason, number>()
-    items.forEach((t) => t.sampleReason && m.set(t.sampleReason, (m.get(t.sampleReason) ?? 0) + 1))
-    return m
-  }, [items])
-  const shown = mode === "full" || reason === "all" ? items : items.filter((t) => t.sampleReason === reason)
-  return (
-    <div className="ent-section">
-      <h4>
-        {mode === "sample" ? "任务抽样" : "完整任务列表"}
-        <span className="sub">{q.data ? `${num(q.data.total)} 个任务` : ""}</span>
-        <span className="spacer" />
-        <Segmented size="sm" value={mode} onChange={v => { setMode(v); setView(null); setOffset(0) }} options={[{ value: "sample", label: "分层抽样" }, { value: "full", label: "完整列表" }]} />
-      </h4>
-      <div style={{ marginBottom: 14 }}>
-        {mode === "sample" ? <Segmented
-          size="sm"
-          value={reason}
-          onChange={setReason}
-          options={[{ value: "all" as const, label: "全部", count: items.length }, ...sampleOrder.filter((r) => counts.get(r)).map((r) => ({ value: r, label: sampleReasonName[r], count: counts.get(r) }))]}
-        /> : <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <Select size="sm" value={model} onChange={v => { setModel(v); setOffset(0); setView(null) }} prefix="模型" options={[{ value: "all", label: "全部" }, ...ld.models.map(m => ({ value: m.model, label: m.model }))]} />
-          <Select size="sm" value={category} onChange={v => { setCategory(v); setOffset(0); setView(null) }} prefix={line === "inspiration" ? "任务类型" : "模式"} options={[{ value: "all", label: "全部" }, ...ld.breakdown.map(b => ({ value: b.key, label: b.key }))]} />
-          <Select size="sm" value={status} onChange={v => { setStatus(v); setOffset(0); setView(null) }} prefix="结果" options={[{ value: "all", label: "全部" }, { value: "downloaded", label: "已下载" }, { value: "not_downloaded", label: "未下载" }, { value: "failed", label: "失败" }]} />
-          <Select size="sm" value={user} onChange={v => { setUser(v); setOffset(0); setView(null) }} prefix="成员" options={[{ value: "all", label: "全部" }, ...ld.members.map(m => ({ value: m.id, label: m.name }))]} />
-        </div>}
-      </div>
-      {q.isLoading ? (
-        <div className="task-grid">
-          {Array.from({ length: 8 }, (_, i) => (
-            <div key={i} className="stack" style={{ gap: 8 }}>
-              <Skel h={112} r={8} />
-              <Skel h={12} />
-              <Skel w="60%" h={12} />
-            </div>
-          ))}
-        </div>
-      ) : q.error ? <ErrorState error={q.error} retry={() => q.refetch()} /> : shown.length ? (
-        <div className="task-grid">
-          {shown.map((t) => (
-            <TaskCard key={t.rowKey} t={t} onOpen={() => setView(shown.indexOf(t))} />
-          ))}
-        </div>
-      ) : (
-        <span className="faint">没有任务</span>
-      )}
-      {mode === "full" && q.data && <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 12 }}><span className="faint num">{offset + (shown.length ? 1 : 0)}–{offset + shown.length} / {q.data.total}</span><Button size="sm" disabled={!offset || q.isFetching} onClick={() => { setOffset(offset - 50); setView(null) }}>上一页</Button><Button size="sm" disabled={offset + 50 >= q.data.total || q.isFetching} onClick={() => { setOffset(offset + 50); setView(null) }}>下一页</Button></div>}
-      <TaskViewer tasks={shown} index={view} onClose={() => setView(null)} />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import type { Task } from "@spec/contract"
 import { failureName, patternName } from "../../lib/labels"
 import { time } from "../../lib/format"
@@ -6,21 +6,19 @@ import { Badge, Thumb, copyText } from "../../ui/display"
 import { Icon } from "../../ui/icons"
 import { Modal } from "../../ui/overlays"
 import { Button, IconButton, cx } from "../../ui/controls"
-import { RerunModal } from "./RerunModal"
 import { fdUrl } from "../../lib/fd"
+import { navigate } from "../../lib/route"
 
-export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: number | null; onClose: () => void }) => {
+export const TaskViewer = ({ tasks, index, onClose, extra }: { tasks: Task[]; index: number | null; onClose: () => void; extra?: (t: Task) => ReactNode }) => {
   const [i, setI] = useState(index ?? 0)
   const [out, setOut] = useState(0)
   const [play, setPlay] = useState(false)
-  const [rerun, setRerun] = useState(false)
   useEffect(() => {
     if (index != null) setI(index)
   }, [index])
   useEffect(() => {
     setOut(0)
     setPlay(false)
-    setRerun(false)
   }, [i])
   useEffect(() => {
     if (index == null) return
@@ -103,7 +101,7 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   <IconButton size="xs" icon="copy" label="复制提示词" onClick={() => copyText(t.prompt, "提示词已复制")} />
                 </div>
                 <div className="prompt">{t.prompt || <span className="faint">无</span>}</div>
-                {t.line === "inspiration" && !!t.inputs.length && <Button size="sm" icon="wand" style={{ marginTop: 12 }} onClick={() => setRerun(true)}>重跑对比</Button>}
+                {t.line === "inspiration" && !!t.inputs.length && <Button size="sm" icon="image" style={{ marginTop: 12 }} onClick={() => (onClose(), navigate({ page: "playground", tpl: null, run: null, q: t.rowKey }))}>去试验台</Button>}
               </div>
               {t.inputs.length > 0 && (
                 <div className="sec">
@@ -171,11 +169,11 @@ export const TaskViewer = ({ tasks, index, onClose }: { tasks: Task[]; index: nu
                   </dd>
                 </dl>
               </div>
+              {extra?.(t)}
             </div>
           </div>
         )}
       </Modal>
-      {rerun && t && index != null && <RerunModal key={t.rowKey} task={t} onClose={() => setRerun(false)} />}
     </div>
   )
 }

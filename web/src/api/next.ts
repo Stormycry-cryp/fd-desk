@@ -1,6 +1,9 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query"
-import type { Line, Pool } from "@spec/contract"
+import type { Line, Pool, RosterRow } from "@spec/contract"
+import type { RecordAnalysis, RecordQuery } from "@spec/contract"
+import { useSettings } from "./hooks"
+import { localTrends } from "../lib/trend"
 import type { Annotation, AnnotationKind, ApiNext, Job, JobKind, OpportunityState, Profile, TagDimension, TemplateKind, TemplateState, TrialRun } from "@spec/contract"
 import { call, RequestError, type CallOpts } from "./client"
 import { toast } from "../ui/overlays"
@@ -11,6 +14,14 @@ const key = <T extends K>(k: T, opts: CallOpts<T> = {}) => [k, opts.params ?? nu
 
 const q = <T extends K>(k: T, opts: CallOpts<T> = {}, enabled = true) => ({
   queryKey: key(k, opts),
+  queryFn: () => call(k, opts),
+  enabled,
+  retry: (n: number, e: unknown) => !(e instanceof RequestError && (e.missing || e.status < 500)) && n < 2,
+})
+
+type R = keyof ApiNext
+const q2 = <T extends R>(k: T, opts: CallOpts<T> = {}, enabled = true) => ({
+  queryKey: [k, opts.params ?? null, opts.query ?? null] as QueryKey,
   queryFn: () => call(k, opts),
   enabled,
   retry: (n: number, e: unknown) => !(e instanceof RequestError && (e.missing || e.status < 500)) && n < 2,
@@ -54,6 +65,7 @@ const affects: Record<JobKind, QueryKey[]> = {
   monitor: [["GET /api/templates/monitor"]],
   draft_write: [["GET /api/templates"], ["GET /api/templates/:id"], ["GET /api/templates/opportunities"]],
   finding_recheck: [["GET /api/findings"]],
+  record_analysis: [["GET /api/records/analyses"]],
   export: [],
 }
 
@@ -272,3 +284,21 @@ export const useNext = <T extends K>(k: T, invalidate: K[] = [], opts: { ok?: st
 }
 
 export type { Pool }
+
+export const useTrends = (line: Line, week: string | null, rows: RosterRow[] | undefined) => {
+  const settings = useSettings()
+  const remote = useQuery({ ...q2("GET /api/trends", { query: { line, week: week ?? "" } }, !!week), staleTime: 60000 })
+  return useMemo(() => {
+    const list = remote.data ?? (rows ? localTrends(rows, line, settings.data) : [])
+    return { map: new Map(list.map((t) => [t.enterpriseId, t])), list, local: !remote.data }
+  }, [remote.data, rows, line, settings.data])
+}
+
+export const useRecords = (query: RecordQuery | null) =>
+  useQuery({ ...q2("GET /api/records", { query: query ?? ({} as RecordQuery) }, !!query), placeholderData: (prev) => prev })
+
+export const useRecordAnalyses = (enterprise: string | null) =>
+  useQuery({
+    ...q2("GET /api/records/analyses", { query: { enterprise: enterprise ?? "" } }, !!enterprise),
+    refetchInterval: (query) => ((query.state.data as RecordAnalysis[] | undefined)?.some((a) => a.state === "queued" || a.state === "running") ? 2500 : false),
+  })

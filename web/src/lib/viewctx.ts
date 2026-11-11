@@ -29,6 +29,7 @@ export const snapshot = (week: string | null): AskContext => {
   if (r.level.length) filters.level = r.level.join(",")
   if (r.movement.length) filters.movement = r.movement.join(",")
   if (r.alert.length) filters.alert = r.alert.join(",")
+  if (r.trend.length) filters.trend = r.trend.join(",")
   if (r.q) filters.q = r.q
   if (r.tags.length) filters.tags = r.tags.join(",")
   if (r.noted.length) filters.noted = r.noted.join(",")

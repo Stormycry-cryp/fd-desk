@@ -10,23 +10,24 @@ import { Button, NumberField, Segmented, IconButton, cx } from "../ui/controls"
 import { Badge, Card, Empty, ErrorState, Skel } from "../ui/display"
 import { Icon } from "../ui/icons"
 import { Select, toast } from "../ui/overlays"
+import { PipelinePanel } from "./PipelinePanel"
 
 export const DataPage = () => {
-  const [tab, setTab] = useState<"imports" | "settings">("imports")
+  const [tab, setTab] = useState<"imports" | "pipeline" | "settings">("imports")
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>数据</h1>
           <div className="meta">
-            <span>导入、覆盖与口径设置</span>
+            <span>导入、流水线与口径设置</span>
           </div>
         </div>
         <div className="actions">
-          <Segmented value={tab} onChange={setTab} options={[{ value: "imports", label: "导入与覆盖", icon: "database" }, { value: "settings", label: "设置", icon: "sliders" }]} />
+          <Segmented value={tab} onChange={setTab} options={[{ value: "imports", label: "导入与覆盖", icon: "database" }, { value: "pipeline", label: "流水线", icon: "layers" }, { value: "settings", label: "设置", icon: "sliders" }]} />
         </div>
       </div>
-      {tab === "imports" ? <Imports /> : <SettingsForm />}
+      {tab === "imports" ? <Imports /> : tab === "pipeline" ? <PipelinePanel /> : <SettingsForm />}
     </div>
   )
 }

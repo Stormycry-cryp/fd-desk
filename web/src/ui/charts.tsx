@@ -120,7 +120,7 @@ export const TrendChart = ({ points, height = 140, kind = "line", format = (v: n
             ))}
           </g>
           {points.map((p, i) =>
-            i % labelEvery === 0 || i === n - 1 ? (
+            (i % labelEvery === 0 && (i === n - 1 || n - 1 - i >= labelEvery * 0.7)) || i === n - 1 ? (
               <text key={i} className="tick" x={x(i)} y={height - 6} textAnchor="middle" style={{ fill: hover === i ? "var(--ink)" : undefined }}>
                 {p.label}
               </text>

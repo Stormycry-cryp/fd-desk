@@ -68,7 +68,7 @@ const facts: ProfileFacts = {
     ],
     unresolvedChains: 5,
   },
-  rhythm: { kind: "continuous", batchGapWeeks: null, currentGapWeeks: 0 },
+  rhythm: { kind: "continuous", batchGapWeeks: null, currentGapWeeks: 0, trend: null },
   members: [
     { id: "m1", name: "设计一组", phone: "18100000001", tasks: 2210, downloadRate: 0.71, lastActiveAt: "2026-11-10T17:40:00+08:00" },
     { id: "m2", name: "小周", phone: "13800001111", tasks: 907, downloadRate: 0.48, lastActiveAt: "2026-11-07T15:20:00+08:00" },

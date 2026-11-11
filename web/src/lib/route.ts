@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react"
 import type { AlertKind, Level, Line, Movement, Pool } from "@spec/contract"
+import type { TrendKind } from "@spec/contract"
 
 export type PageKey = "week" | "customers" | "touches" | "templates" | "analysis" | "data" | "report" | "enterprise" | "playground" | "export"
 export type EntTab = "profile" | "data" | "tasks" | "notes"
@@ -17,6 +18,7 @@ export interface Route {
   level: Level[]
   movement: Movement[]
   alert: AlertKind[]
+  trend: TrendKind[]
   owner: string | null
   q: string
   tab: EntTab
@@ -49,6 +51,7 @@ const read = (): Route => {
     level: list(s.get("level")) as Level[],
     movement: list(s.get("mv")) as Movement[],
     alert: list(s.get("alert")) as AlertKind[],
+    trend: list(s.get("trend")) as TrendKind[],
     owner: s.get("owner"),
     q: s.get("q") ?? "",
     tab: (["profile", "data", "tasks", "notes"].includes(s.get("tab") ?? "") ? s.get("tab") : "profile") as EntTab,
@@ -76,6 +79,7 @@ const write = (r: Route, replace: boolean) => {
   if (r.level.length) s.set("level", r.level.join(","))
   if (r.movement.length) s.set("mv", r.movement.join(","))
   if (r.alert.length) s.set("alert", r.alert.join(","))
+  if (r.trend.length) s.set("trend", r.trend.join(","))
   if (r.owner) s.set("owner", r.owner)
   if (r.q) s.set("q", r.q)
   if (r.tab !== "profile" && (r.ent || r.page === "enterprise")) s.set("tab", r.tab)
@@ -119,7 +123,7 @@ export const navigate = (patch: Partial<Route>, opts: { replace?: boolean } = {}
   const base = entChanged && patch.tab === undefined ? { ...next, tab: "profile" as EntTab, section: patch.section ?? null } : next
   write(
     filtersReset
-      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, tpl: patch.tpl ?? (patch.page === "playground" ? current.tpl : null) }
+      ? { ...base, ent: patch.ent ?? null, level: patch.level ?? [], movement: patch.movement ?? [], alert: patch.alert ?? [], trend: patch.trend ?? [], owner: patch.owner ?? null, q: patch.q ?? "", pool: patch.pool ?? "all", tags: patch.tags ?? [], noted: patch.noted ?? [], section: patch.section ?? null, run: patch.run ?? null, tpl: patch.tpl ?? (patch.page === "playground" ? current.tpl : null) }
       : base,
     opts.replace ?? false,
   )

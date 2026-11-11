@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { AlertKind, Level, Line, Movement, Pool, RosterRow } from "@spec/contract"
 import type { RosterExtra, TagDimension } from "@spec/contract"
-import { useAnalyzeMovement, useMovementPoll, useRosterExtra, useTags } from "../api/next"
+import { useAnalyzeMovement, useMovementPoll, useRosterExtra, useTags, useTrends } from "../api/next"
+import type { Trend, TrendKind } from "@spec/contract"
+import { trendName, trendOrder, trendText } from "../lib/trend"
 import { tagDimName, tagOrder, TagChip, JobProgress } from "../ui/insight"
 import { useRoster } from "../api/hooks"
 import { call, url } from "../api/client"
@@ -93,6 +95,12 @@ export const CustomersPage = () => {
     })
     return [...m].sort((a, b) => b[1] - a[1])
   }, [rows])
+  const trends = useTrends(line, week, q.data?.rows)
+  const trendCounts = useMemo(() => {
+    const m = new Map<TrendKind, number>()
+    trends.list.forEach((t) => m.set(t.kind, (m.get(t.kind) ?? 0) + 1))
+    return m
+  }, [trends.list])
   const alertCounts = useMemo(() => {
     const m = new Map<AlertKind, number>()
     rows.forEach((r) => r.alerts.forEach((a) => m.set(a, (m.get(a) ?? 0) + 1)))
@@ -106,6 +114,7 @@ export const CustomersPage = () => {
         (!route.level.length || (!!r.level && route.level.includes(r.level))) &&
         (!route.movement.length || route.movement.includes(r.movement)) &&
         (!route.alert.length || route.alert.some((a) => r.alerts.includes(a))) &&
+        (!route.trend.length || (!!trends.map.get(r.enterprise.id) && route.trend.includes(trends.map.get(r.enterprise.id)!.kind))) &&
         (!models.length || models.some((m) => modelSets.get(m)?.has(r.enterprise.id))) &&
         (!intent.length || intent.includes(r.inspiration?.topIntent ?? r.video?.topMode ?? "")) &&
         [...tagSel].every(([d, vs]) => ex.get(r.enterprise.id)?.tags.some((t) => t.dimension === d && vs.includes(t.value))) &&
@@ -119,7 +128,7 @@ export const CustomersPage = () => {
       return (typeof x === "string" ? x.localeCompare(y as string, "zh") : (x as number) - (y as number)) * sort.dir
     })
     return xs
-  }, [rows, route.pool, route.level, route.movement, route.alert, intent, models, modelSets, tagSel, route.noted, ex, search, sort])
+  }, [rows, route.pool, route.level, route.movement, route.alert, route.trend, trends.map, intent, models, modelSets, tagSel, route.noted, ex, search, sort])
   useEffect(() => setFocus(-1), [filtered.length, route.pool])
   useEffect(() => {
     if (focus >= 0) tbody.current?.children[focus]?.scrollIntoView({ block: "nearest" })
@@ -166,7 +175,7 @@ export const CustomersPage = () => {
   const pc = q.data?.poolCounts
   const insp = line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
-  const anyFilter = route.level.length || route.movement.length || route.alert.length || intent.length || models.length || search || tagSel.size || route.noted.length
+  const anyFilter = route.level.length || route.movement.length || route.alert.length || route.trend.length || intent.length || models.length || search || tagSel.size || route.noted.length
   const tagCount = (d: TagDimension, v: string) => (extra.data ?? []).filter((x) => x.tags.some((t) => t.dimension === d && t.value === v)).length
   const noteAny = (extra.data ?? []).filter((x) => x.annotationCount > 0).length
   const noteRecent = (extra.data ?? []).filter((x) => x.lastAnnotation && new Date(x.lastAnnotation.at).getTime() >= weekAgo).length
@@ -212,6 +221,7 @@ export const CustomersPage = () => {
         <Input icon="search" size="sm" quiet placeholder="企业或档案" value={search} onChange={(e) => setSearch(e.target.value)} onClear={() => setSearch("")} style={{ width: 200 }} />
         <FilterChip label="层级" multi value={route.level} onChange={(v) => navigate({ level: v as Level[] }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
         <FilterChip label="变动" multi value={route.movement} onChange={(v) => navigate({ movement: v as Movement[] }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
+        <FilterChip label="多周趋势" multi value={route.trend} onChange={(v) => navigate({ trend: v as TrendKind[] }, { replace: true })} options={trendOrder.map((k) => ({ value: k, label: <span className={cx("trend-opt", k)}><i />{trendName[k]}</span>, text: trendName[k], count: trendCounts.get(k) ?? 0 }))} />
         <FilterChip label="预警" multi value={route.alert} onChange={(v) => navigate({ alert: v as AlertKind[] }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
         <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={setIntent} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
         <FilterChip label="模型" multi search value={models} onChange={setModels} options={(q.data?.models ?? []).map((model) => ({ value: model, label: model, count: modelSets.get(model)?.size }))} />
@@ -225,7 +235,7 @@ export const CustomersPage = () => {
             size="sm"
             variant="ghost"
             onClick={() => {
-              navigate({ level: [], movement: [], alert: [], owner: null, tags: [], noted: [] }, { replace: true })
+              navigate({ level: [], movement: [], alert: [], trend: [], owner: null, tags: [], noted: [] }, { replace: true })
               setIntent([])
               setModels([])
               setSearch("")
@@ -271,7 +281,7 @@ export const CustomersPage = () => {
               </thead>
               <tbody ref={tbody}>
                 {filtered.map((r, i) => (
-                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
+                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} tr={trends.map.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
                 ))}
               </tbody>
             </table>
@@ -294,12 +304,12 @@ export const CustomersPage = () => {
   )
 }
 
-const Row = ({ r, x, onAnalyze, line, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; onAnalyze: () => void; line: Line; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
+const Row = ({ r, x, tr, onAnalyze, line, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; tr: Trend | undefined; onAnalyze: () => void; line: Line; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
   const insp = line === "inspiration"
   const i = r.inspiration
   const v = r.video
   const sparkVals = r.spark.map((p) => (insp ? p.tasks : p.points))
-  const trend = r.movement === "drop" || r.movement === "silent" ? "down" : r.movement === "surge" ? "up" : undefined
+  const trend = tr || r.movement === "drop" || r.movement === "silent" ? "down" : r.movement === "surge" ? "up" : undefined
   return (
     <tr className={cx(focus && "focus", selected && "selected", open && "open", !r.tasks && "dim")} onClick={onOpen}>
       <td className="sel" onClick={(e) => e.stopPropagation()}>
@@ -394,7 +404,14 @@ const Row = ({ r, x, onAnalyze, line, focus, open, selected, onToggle, onOpen }:
         )}
       </td>
       <td>
-        <Spark values={sparkVals} tone={trend} w={50} />
+        <div className="spark-cell">
+          <Spark values={sparkVals} tone={trend} w={50} />
+          {tr && (
+            <Tooltip content={<TrendTip t={tr} />}>
+              <span className={cx("trend-tag", tr.kind)}>{trendName[tr.kind]}</span>
+            </Tooltip>
+          )}
+        </div>
       </td>
       <td className="go">
         <Icon name="chevRight" size="sm" />
@@ -451,3 +468,18 @@ const RosterSkeleton = () => (
     ))}
   </div>
 )
+
+const TrendTip = ({ t }: { t: Trend }) => {
+  const max = Math.max(1, ...t.series.map((p) => p.tasks))
+  return (
+    <div className="trend-tip">
+      <b>{trendText(t)}</b>
+      <div className="tt-bars">
+        {t.series.map((p) => (
+          <span key={p.week} style={{ height: `${Math.max(2, (p.tasks / max) * 36)}px` }} title={String(p.tasks)} />
+        ))}
+      </div>
+      <span className="tt-nums num">{t.series.map((p) => p.tasks).join(" · ")}</span>
+    </div>
+  )
+}

@@ -11,7 +11,6 @@ import { BarList } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { Menu, Modal, Tooltip, toast } from "../ui/overlays"
 import { TaskViewer } from "./enterprise/TaskViewer"
-import { AutomationPanel } from "./AutomationPanel"
 
 const mix = (a: number[], b: number[], t: number) => a.map((x, i) => Math.round(x + (b[i] - x) * t))
 const heat = (v: number | null, base: number) => {
@@ -37,7 +36,6 @@ export const AnalysisPage = () => {
       </div>
       {line === "inspiration" ? <InspirationView week={week} excluded={excluded} /> : <VideoView week={week} excluded={excluded} />}
       {week && <CrossLine week={week} />}
-      {week && <AutomationPanel key={`${line}:${week}`} line={line} week={week} />}
       <Findings line={line} />
     </div>
   )

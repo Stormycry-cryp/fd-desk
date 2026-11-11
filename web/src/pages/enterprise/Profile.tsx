@@ -12,6 +12,7 @@ import { BarList, Heatmap } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
 import { Tooltip } from "../../ui/overlays"
 import { Annotatable, useQuoteSelection } from "../../ui/annotate"
+import { MovementCard } from "../movement"
 import { BigStat, ConfidenceDot, EvidenceChip, HourHeat, JobProgress, Segments } from "../../ui/insight"
 
 export const insightName: Record<InsightKey, string> = { business: "做什么生意", usage: "用 FD 做什么", workflow: "怎么工作", skill: "熟练程度", pain: "痛点", opportunity: "机会" }
@@ -41,6 +42,7 @@ export const ProfileTab = ({ p, scope }: { p: Profile; scope: Scope }) => {
   return (
     <div ref={wrap} className="profile">
       <Core f={f} />
+      <Movements p={p} scope={scope} />
       <Insights p={p} />
       <Habits f={f} id={p.enterprise.id} scope={scope} />
       <Doing f={f} />
@@ -82,6 +84,24 @@ const Core = ({ f }: { f: ProfileFacts }) => {
         />
       </div>
     </Annotatable>
+  )
+}
+
+const Movements = ({ p, scope }: { p: Profile; scope: Scope }) => {
+  const list = p.movements.filter((m) => (scope === "all" || m.line === scope) && m.state !== "failed").slice(0, 3)
+  if (!list.length) return null
+  return (
+    <section className="pf-sec" data-section="movement">
+      <header className="pf-h">
+        <h4>涨跌原因</h4>
+        <span className="faint num">{weekShort(list[0].week)} 周</span>
+      </header>
+      <div className="stack" style={{ gap: 8 }}>
+        {list.map((m) => (
+          <MovementCard key={m.id} m={m} />
+        ))}
+      </div>
+    </section>
   )
 }
 

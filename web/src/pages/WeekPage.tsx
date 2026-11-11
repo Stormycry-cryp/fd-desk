@@ -1,15 +1,19 @@
 import { useState } from "react"
 import type { AlertKind, Line, Mover, Overview } from "@spec/contract"
 import { useDaily, useOverview } from "../api/hooks"
+import { useMovements, useTrends } from "../api/next"
+import { useRoster } from "../api/hooks"
+import { trendName, trendOrder, trendText } from "../lib/trend"
+import { MovementCard } from "./movement"
 import { useCtx, isoWeek } from "../lib/ctx"
 import { alertName, failureName, lineName, patternName } from "../lib/labels"
 import { navigate } from "../lib/route"
 import { compact, num, pct, ratio, time, weekLabel, weekdaysLabel } from "../lib/format"
-import { Button, Segmented, Tabs } from "../ui/controls"
+import { Button, Segmented, Tabs, cx } from "../ui/controls"
 import { Badge, Card, CoverageDots, Delta, ErrorState, Rate, Sev, Stat } from "../ui/display"
 import { BarList, Heatmap, LevelBar, MiniArea, PairBars, StackBar, TrendChart } from "../ui/charts"
 import { Icon } from "../ui/icons"
-import { Hint } from "../ui/overlays"
+import { Hint, Tooltip } from "../ui/overlays"
 import { CmpFoot, PageSkeleton, fmt, trimHistory, weekPoint } from "./common"
 
 export const WeekPage = () => {
@@ -44,9 +48,10 @@ export const WeekPage = () => {
         <Hero o={o} excluded={excluded} />
         <Tiles o={o} excluded={excluded} />
         <Activity o={o} />
-        <Concentration o={o} />
         <Movers o={o} />
+        <Concentration o={o} />
         <Alerts o={o} line={line} />
+        <MovementReasons line={line} week={week} />
         {o.inspiration && <InspirationBlocks o={o} />}
         {o.video && <VideoBlocks o={o} />}
       </div>
@@ -78,10 +83,10 @@ const Hero = ({ o, excluded }: { o: Overview; excluded: boolean }) => {
             <Stat size="lg" label="稳定使用企业" value="—" foot={<span>本周未结束，层级在整周后计算</span>} />
           )}
           {o.levels && <LevelBar levels={o.levels} onPick={(l) => navigate({ page: "customers", level: [l] })} />}
-          <div className="row" style={{ gap: 16, marginTop: "auto" }}>
-            <Stat size="xs" label="活跃企业" value={num(o.activeEnterprises.value)} />
+          <div className="hero-mini">
+            <Stat size="xs" label={<Hint text="上周稳定使用的企业，本周仍稳定使用的比例">稳定留存</Hint>} value={o.retention?.rate != null ? pct(o.retention.rate) : "—"} unit={o.retention?.rate != null ? <span className="faint num">{o.retention.kept}/{o.retention.base}</span> : undefined} />
             <Stat size="xs" label="活跃账号" value={num(o.users.value)} />
-            <Stat size="xs" label={o.line === "inspiration" ? "最大客户任务占比" : "最大客户耗点占比"} value={pct(o.line === "inspiration" ? o.concentration.top1TaskShare : o.concentration.top1PointShare)} />
+            <Stat size="xs" label="最大客户占比" value={pct(o.line === "inspiration" ? o.concentration.top1TaskShare : o.concentration.top1PointShare)} />
           </div>
         </div>
         <div className="chart-wrap">
@@ -167,6 +172,9 @@ const Activity = ({ o }: { o: Overview }) => {
   const weekly = o.history.filter((_, i) => i >= o.history.findIndex((x) => x.tasks > 0))
   const wv = (h: (typeof weekly)[number]) => (metric === "tasks" ? h.tasks : metric === "points" ? h.points : h.activeEnterprises)
   let acc = 0
+  const avg7 = covered.map((_, i) => (i < 6 ? null : covered.slice(i - 6, i + 1).reduce((a, d) => a + val(d), 0) / 7))
+  const span = days.length ? Math.ceil((new Date(days[days.length - 1].date).getTime() - new Date(days[0].date).getTime()) / 864e5 / 7) + 2 : 10
+  const mapWidth = 22 + span * 24 + (span - 1) * 4
   const cumDays = covered.map((d) => ((acc += val(d)), { label: d.date.slice(5).replace("-", "/"), value: acc }))
   return (
     <Card
@@ -186,12 +194,19 @@ const Activity = ({ o }: { o: Overview }) => {
         <ErrorState error={q.error} />
       ) : mode === "day" ? (
         <div className="activity">
-          <div className="act-map">
+          <div className="act-map" style={{ width: mapWidth }}>
             <Heatmap
               days={days.map((d) => ({ date: d.date, covered: d.covered, value: val(d), note: d.covered ? `${num(d.tasks)} 任务 · ${compact(d.points)} 点 · ${d.enterprises} 家${d.downloadRate != null ? ` · 下载 ${pct(d.downloadRate)}` : ""}` : undefined }))}
               format={(n) => `${f(n)} ${unit}`}
               maxCell={24}
             />
+          </div>
+          <div className="act-line">
+            <div className="act-k">
+              每日走势
+              <span className="act-legend"><i className="d" />每天<i className="a" />7 日均值</span>
+            </div>
+            <TrendChart height={176} points={covered.map((d) => ({ label: d.date.slice(5).replace("-", "/"), value: val(d) }))} compare={avg7} format={f} yTicks={3} />
           </div>
           <div className="act-side">
             <div className="act-k">按星期 · 日均</div>
@@ -265,13 +280,35 @@ const moverTabs = ["falling", "rising", "silent", "new", "returned"] as const
 const moverName: Record<(typeof moverTabs)[number], string> = { falling: "下跌", rising: "上涨", silent: "沉默", new: "新增", returned: "回归" }
 
 const Movers = ({ o }: { o: Overview }) => {
-  const [tab, setTab] = useState<(typeof moverTabs)[number]>("falling")
-  const list: Mover[] = o.movers[tab]
+  const [tab, setTab] = useState<(typeof moverTabs)[number] | "trend">("falling")
+  const roster = useRoster(o.line, o.week)
+  const tr = useTrends(o.line, o.week, roster.data?.rows)
+  const names = new Map((roster.data?.rows ?? []).map((r) => [r.enterprise.id, r.enterprise.name]))
+  const list: Mover[] = tab === "trend" ? [] : o.movers[tab]
+  const trends = [...tr.list].sort((a, b) => trendOrder.indexOf(a.kind) - trendOrder.indexOf(b.kind) || b.from - a.from)
   return (
-    <Card className="span-4 movers" flush title="变动" actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate({ page: "customers", movement: [tab === "falling" ? "drop" : tab === "rising" ? "surge" : tab] })}>全部</Button>}>
-      <Tabs value={tab} onChange={setTab} options={moverTabs.map((k) => ({ value: k, label: moverName[k], count: o.movers[k].length || undefined }))} />
+    <Card className="span-4 movers" flush title="变动" actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate(tab === "trend" ? { page: "customers", trend: trendOrder } : { page: "customers", movement: [tab === "falling" ? "drop" : tab === "rising" ? "surge" : tab] })}>全部</Button>}>
+      <Tabs value={tab} onChange={setTab} options={[...moverTabs.map((k) => ({ value: k as typeof tab, label: moverName[k], count: o.movers[k].length || undefined })), { value: "trend" as const, label: "多周", count: tr.list.length || undefined }]} />
       <div style={{ padding: "4px 0 8px" }}>
-        {list.length ? (
+        {tab === "trend" ? (
+          trends.length ? (
+            trends.slice(0, 8).map((t) => (
+              <Tooltip key={t.enterpriseId} content={trendText(t)}>
+                <div className="row-item" onClick={() => navigate({ ent: t.enterpriseId })}>
+                  <span className="name">{names.get(t.enterpriseId) ?? ""}</span>
+                  <span className="nums">
+                    {num(t.from)} → <b>{num(t.to)}</b>
+                  </span>
+                  <span className={cx("trend-tag", t.kind)} style={{ width: 52, textAlign: "center" }}>{trendName[t.kind]}</span>
+                </div>
+              </Tooltip>
+            ))
+          ) : (
+            <div className="empty compact">
+              <span className="d">没有连续多周下滑的企业</span>
+            </div>
+          )
+        ) : list.length ? (
           list.slice(0, 7).map((m) => (
             <div key={m.enterprise.id} className="row-item" onClick={() => navigate({ ent: m.enterprise.id })}>
               <span className="name">{m.enterprise.name}</span>
@@ -330,7 +367,7 @@ const InspirationBlocks = ({ o }: { o: Overview }) => {
   const other = Math.max(0, 1 - i.batchShare - i.stuckShare)
   return (
     <>
-      <Card className="span-6" title="使用方式" sub="快速模式">
+      <Card className="span-6 usage-card" title="使用方式" sub="快速模式">
         <StackBar
           segments={[
             { key: "batch", value: i.batchShare, color: "var(--accent-weak-2)", ink: "var(--accent-ink)", label: `批量 ${pct(i.batchShare)}` },
@@ -348,7 +385,7 @@ const InspirationBlocks = ({ o }: { o: Overview }) => {
             foot={<span>{i.officialTemplates.used}/{i.officialTemplates.total} 个被用到，前 3 占 {pct(i.officialTemplates.top3Share)}</span>}
           />
         </div>
-        <div className="divider" />
+        <div className="divider" style={{ marginTop: "auto" }} />
         <div className="row" style={{ gap: 18, fontSize: 13.5, color: "var(--ink-3)" }}>
           <span>
             Agent <b className="num" style={{ color: "var(--ink)" }}>{num(i.agent.rows)}</b> 行 · {num(i.agent.turns)} 次提交 · {i.agent.enterprises} 家
@@ -362,7 +399,7 @@ const InspirationBlocks = ({ o }: { o: Overview }) => {
       </Card>
       <Card className="span-6" title="任务类型" sub="按任务数" actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate({ page: "analysis" })}>分析</Button>}>
         <BarList
-          items={i.intents.slice(0, 8).map((t) => ({
+          items={i.intents.slice(0, 7).map((t) => ({
             key: t.intent,
             label: t.intent,
             value: t.tasks,
@@ -448,3 +485,20 @@ const VideoBlocks = ({ o }: { o: Overview }) => {
 }
 
 export { patternName, ratio }
+
+const MovementReasons = ({ line, week }: { line: Line; week: string }) => {
+  const q = useMovements(line, week)
+  const list = (q.data ?? []).filter((m) => m.state !== "failed")
+  if (q.error || !list.length) return null
+  const down = list.filter((m) => m.direction === "down")
+  const up = list.filter((m) => m.direction === "up")
+  return (
+    <Card className="span-12" title="涨跌原因" sub={`下跌 ${down.length} · 上涨 ${up.length}`} actions={<Button size="xs" variant="ghost" iconRight="chevRight" onClick={() => navigate({ page: "customers", movement: ["drop", "surge"] })}>客户</Button>}>
+      <div className="mv-grid">
+        {[...down, ...up].map((m) => (
+          <MovementCard key={m.id} m={m} showName compact />
+        ))}
+      </div>
+    </Card>
+  )
+}
