@@ -10,6 +10,7 @@ from rapidfuzz import fuzz
 
 from .core import ROOT, digest, ratio, read_spec, shift_week, week_key
 from .similarity import PromptMatcher
+from .trends import calculate as calculate_trends
 
 ANALYSIS_RECORDS_SQL = (
     "SELECT payload,file_order,created_at,row_no FROM tasks WHERE line='inspiration' "
@@ -32,11 +33,13 @@ def ref(enterprise):
 
 
 class Engine:
-    def __init__(self, store):
+    def __init__(self, store, *, enterprise=None):
         self.store = store
+        self.enterprise = enterprise
         self.version = None
         self.facts_version = None
         self.roster_cache = {}
+        self.trend_cache = {}
         self.group_cache = {}
         self.cluster_cache = {}
         self.cluster_stats_cache = {}
@@ -59,13 +62,18 @@ class Engine:
         if not facts_changed:
             if previous_metadata != (self.enterprises, self.settings, self.findings):
                 self.roster_cache.clear()
+                self.trend_cache.clear()
                 self.cluster_stats_cache.clear()
                 if previous_metadata[1]["clusters"] != self.settings["clusters"]:
                     self.cluster_cache.clear()
             self.version = generation
             return
         with self.store.connection() as conn:
-            records = [{**orjson.loads(row["payload"]), "file_order": row["file_order"]} for row in conn.execute(ANALYSIS_RECORDS_SQL)]
+            if self.enterprise is None:
+                rows = conn.execute(ANALYSIS_RECORDS_SQL)
+            else:
+                rows = conn.execute("SELECT payload,file_order,created_at,row_no FROM tasks WHERE enterprise_id=? AND line IN ('inspiration','video') ORDER BY created_at,file_order,row_no DESC", (self.enterprise,))
+            records = [{**orjson.loads(row["payload"]), "file_order": row["file_order"]} for row in rows]
         self.rules = read_spec("intents.json")
         self.frame = pd.DataFrame(records, columns=[
             "row_key", "source_id", "created_at", "day", "week", "weekday", "row_no", "enterprise_id",
@@ -165,11 +173,16 @@ class Engine:
         self.frame["template_id"] = pd.Series(template_ids, dtype=object)
         self.frame["chain_id"] = self.chain_assignments
         self.group_indices = self.frame.groupby(["line", "week"], sort=False).indices
+        self.enterprise_all_indices = self.frame.groupby("enterprise_id", sort=False).indices
         self.enterprise_indices = self.frame.groupby(["line", "week", "enterprise_id"], sort=False).indices
         self.week_stats = self.frame.groupby(["line", "week", "enterprise_id"], sort=False).agg(tasks=("row_key", "size"), points=("points", "sum"), activeDays=("day", "nunique"), downloads=("downloaded", "sum")).to_dict("index")
         self.frame["normalized_prompt"] = self.frame.prompt.map(lambda prompt: re.sub(r"[\W_]+", "", prompt))
         self.frame["user_id"] = self.frame.user_phone.map(lambda phone: digest(phone, 10) if phone else None)
+        self.frame["result"] = self.frame.status.map({"success": "not_downloaded"})
+        self.frame.loc[self.frame.downloaded, "result"] = "downloaded"
+        self.frame.loc[self.frame.failed, "result"] = "failed"
         self.roster_cache.clear()
+        self.trend_cache.clear()
         self.group_cache.clear()
         self.cluster_cache.clear()
         self.cluster_stats_cache.clear()
@@ -299,6 +312,7 @@ class Engine:
         current_all = self.group(line, week)
         current_comparable, previous_comparable, days = self.comparable(line, week)
         complete = self.coverage(line, week)["complete"]
+        trends = {item["enterpriseId"]: item for item in calculate_trends(self, line, week)}
         for enterprise_id, history in all_line.groupby("enterprise_id", sort=False):
             enterprise = self.enterprises[enterprise_id]
             current = history[history.week == week]
@@ -329,8 +343,11 @@ class Engine:
             reliable = not (len(current) >= unreliable["minTasks"] and rate(current) < unreliable["downloadRate"])
             level = self.level(line, current, complete)
             peak = int(history.groupby("week").size().max())
+            trend = trends.get(enterprise_id)
             pool = None
-            if movement == "drop":
+            if trend and trend["kind"] == "churned":
+                pool = "recall"
+            elif movement == "drop" or trend and trend["kind"] == "sliding":
                 pool = "retain"
             elif movement in ("silent", "lost") and peak >= self.settings["pools"]["recall"]["minPeakTasks"]:
                 pool = "recall"
@@ -344,6 +361,8 @@ class Engine:
             elif len(current):
                 pool = "nurture"
             alerts = []
+            if trend:
+                alerts.append("trend")
             params = self.settings["alerts"]
             if movement == "drop":
                 alerts.append("drop")
@@ -415,12 +434,17 @@ class Engine:
         return [{**row, "nextAction": self.authored_values.get(("next_action", f"{row['enterprise']['id']}:{line}"), row["nextAction"])} for row in rows]
 
     def alerts(self, line, week):
-        severities = {"drop": 3, "vanished": 3, "stuck": 2, "cold_start": 2, "mismatch": 2, "waste": 3, "failures": 2, "reuse": 1, "surge": 1}
+        severities = {"drop": 3, "vanished": 3, "stuck": 2, "cold_start": 2, "mismatch": 2, "waste": 3, "failures": 2, "reuse": 1, "surge": 1, "trend": 3}
+        trends = {item["enterpriseId"]: item for item in calculate_trends(self, line, week)}
         alerts = []
         for row in self.base_roster(line, week):
             for kind in row["alerts"]:
                 key = digest(f"alert|{line}|{week}|{row['enterprise']['id']}|{kind}")
                 facts = [f"本周任务 {row['tasks']} 个，使用 {row['activeDays']} 天"]
+                if kind == "trend":
+                    trend = trends[row["enterprise"]["id"]]
+                    label = {"churned": "流失空窗", "sliding": "连续下滑", "fading": "明显回落"}[trend["kind"]]
+                    facts.append(f"{label} {trend['weeks']} 周，任务数 {trend['from']} → {trend['to']}")
                 if row["comparable"]:
                     unit = "点" if line == "video" else "个任务"
                     facts.append(f"同星期用量 {row['comparable']['previous']} → {row['comparable']['current']} {unit}")
@@ -450,6 +474,7 @@ class Engine:
             audio = False if any(term in label for term in ("不", "无", "关闭")) else True if any(term in label for term in ("音", "开启")) else None
         return {
             "rowKey": row.row_key, "sourceId": row.source_id,
+            "fdUrl": f"{self.settings['siteBaseUrl'].rstrip('/')}/workbench/chatting-image/design/{row.source_id}" if row.line == "inspiration" and str(row.source_id).startswith("C_") else None,
             "turnKey": digest(f"turn|{row.source_id}|{row.created_at}") if row.pattern == "agent" else None,
             "line": row.line, "scene": row.scene, "mode": row["mode"] or row.scene, "createdAt": row.created_at,
             "enterprise": ref(self.enterprises[row.enterprise_id]),

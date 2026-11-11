@@ -1,5 +1,4 @@
 import io
-import json
 
 from openpyxl import load_workbook
 
@@ -33,33 +32,36 @@ def test_selected_export_contains_exact_enterprises(client):
     assert client.get("/api/enterprises/export", params={"line": "inspiration", "week": WEEK, "ids": "unknown"}).status_code == 422
 
 
-def test_draft_scope_is_explicit_and_preserves_sources(client):
+def test_template_scope_preserves_real_sources(client):
     cluster = client.get("/api/clusters", params={"line": "inspiration", "week": WEEK, "candidate": True}).json()[0]
-    body = {"line": "inspiration", "title": cluster["intent"] or cluster["sample"][:20], "prompt": cluster["sample"], "slots": [], "clusterId": cluster["id"], "scope": "general", "source": "manual"}
-    response = client.post("/api/drafts", json=body)
+    body = {"line": "inspiration", "kind": "official", "clusterIds": [cluster["id"]], "write": False,
+            "content": {"title": cluster["intent"] or "提示词模板", "prompt": cluster["sample"]}}
+    response = client.post("/api/templates", json=body)
     assert response.status_code == 200
-    assert response.json()["scope"] == "general"
-    assert response.json()["sourceEnterprises"]
-    assert client.post("/api/drafts", json={**body, "source": "agent"}).status_code == 409
-    body.pop("clusterId")
-    assert client.post("/api/drafts", json={**body, "scope": "owner"}).status_code == 422
+    value = response.json()["template"]
+    assert value["kind"] == "official" and value["target"] is None
+    assert value["origin"]["clusterIds"] == [cluster["id"]]
+    assert value["origin"]["uses"] == cluster["uses"]
+    assert value["current"]["source"] == "manual"
+    assert client.post("/api/templates", json={**body, "kind": "custom"}).status_code == 422
 
 
-def test_editing_a_mapped_draft_requires_new_publication(client):
+def test_template_edit_retains_content_history(client):
     engine = client.app.state.engine
     template = engine.catalog[0]
-    prompt = "".join(item.get("value", "") for item in json.loads(template["templateConfig"]) if item.get("type") == "text")
     task = client.get("/api/tasks", params={"line": "inspiration", "week": WEEK}).json()["items"][0]
-    draft = client.post("/api/drafts", json={"line": "inspiration", "title": template["name"], "prompt": prompt, "slots": [], "source": "manual"}).json()
-    mapped = client.patch(f"/api/drafts/{draft['id']}", json={"fdTemplateId": template["id"], "fdTemplateSource": "official"})
+    draft = client.post("/api/templates", json={"line": "inspiration", "kind": "custom", "target": task["enterprise"]["id"],
+        "content": {"title": template["name"][:10], "prompt": task["prompt"]}, "write": False}).json()["template"]
+    mapped = client.patch(f"/api/templates/{draft['id']}", json={"fdTemplateId": template["id"]})
     assert mapped.status_code == 200
-    unchanged = client.patch(f"/api/drafts/{draft['id']}", json={"prompt": prompt, "source": "manual"})
-    assert unchanged.status_code == 200 and unchanged.json()["fdTemplateId"] == template["id"]
-    edited = client.patch(f"/api/drafts/{draft['id']}", json={"prompt": task["prompt"], "source": "manual"})
+    content = {**draft["current"]["content"], "fits": task["scene"]}
+    edited = client.patch(f"/api/templates/{draft['id']}", json={"content": content})
     assert edited.status_code == 200
-    assert edited.json()["fdTemplateId"] is None
-    assert edited.json()["link"] is None
-    assert edited.json()["status"] == "draft"
+    value = edited.json()
+    assert value["fdTemplateId"] == template["id"]
+    assert value["current"]["version"] == 2
+    assert value["versions"][0]["content"] == draft["current"]["content"]
+    assert value["current"]["content"] == content
 
 
 def test_top_customer_comparison_is_independent_of_exclusion_settings(client):

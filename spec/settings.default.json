@@ -22,5 +22,9 @@
   "rerunDailyPointLimit": 300,
   "rerunDailyBudget": 0,
   "rerunCurrency": "CNY",
-  "pushDailyLimit": 20
+  "pushDailyLimit": 20,
+  "pipeline": { "concurrency": 3, "profilesPerRun": 40, "profileMinTasks": 20, "profileMaxAgeDays": 28, "dailyJobs": 120 },
+  "trials": { "dailyLimit": 50, "currency": "CNY", "maxCases": 12, "maxArms": 3, "concurrency": 4 },
+  "followups": { "suggestionsPerWeek": 12 },
+  "trends": { "churnGapWeeks": 2, "churnStableWeeks": 2, "slideWeeks": 3, "slideRatio": 0.6, "fadeRatio": 0.5 }
 }

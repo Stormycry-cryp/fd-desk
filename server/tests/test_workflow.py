@@ -2,8 +2,6 @@ import io
 
 from openpyxl import load_workbook
 
-from fd_desk.core import ROOT
-
 WEEK = "2026-11-02"
 
 
@@ -50,19 +48,10 @@ def test_clusters_task_membership_and_disk_cache(client):
     assert client.get("/api/tasks", params={**params, "cluster": "missing"}).status_code == 404
 
 
-def test_draft_manual_protection_scope_and_links(client):
-    cluster = client.get("/api/clusters", params={"line": "inspiration", "week": WEEK, "candidate": True}).json()[0]
-    response = client.post("/api/drafts", json={"line": "inspiration", "title": cluster["intent"] or "提示词模板", "prompt": cluster["sample"], "slots": [], "clusterId": cluster["id"], "source": "manual"})
-    assert response.status_code == 200
-    draft = response.json()
-    assert draft["scope"] == "owner"
-    assert draft["sourceEnterprises"]
-    denied = client.patch(f"/api/drafts/{draft['id']}", json={"title": "自动生成标题", "slots": ["参考图"], "source": "agent"})
-    assert denied.status_code == 409
-    unchanged = next(item for item in client.get("/api/drafts", params={"line": "inspiration"}).json() if item["id"] == draft["id"])
-    assert unchanged["slots"] == []
-    assert client.patch(f"/api/drafts/{draft['id']}", json={"scope": "general", "source": "agent"}).status_code == 409
-    assert client.patch(f"/api/drafts/{draft['id']}", json={"status": "published"}).status_code == 422
+def test_retired_draft_routes_are_unavailable(client):
+    assert client.get("/api/drafts", params={"line": "inspiration"}).status_code == 404
+    assert client.post("/api/drafts", json={}).status_code == 404
+    assert client.patch("/api/drafts/unused", json={}).status_code == 404
 
 
 def test_touch_edit_protection_export_and_atomic_import(client):
@@ -116,38 +105,22 @@ def test_suggestion_acceptance_survives_recalculation(client):
     assert accepted["draft"] == updated["draft"]
 
 
-def test_owner_push_blocks_unrelated_real_enterprise(client):
-    drafts = client.get("/api/drafts", params={"line": "inspiration"}).json()
-    draft = next(item for item in drafts if item["scope"] == "owner")
-    owners = {item["id"] for item in draft["sourceEnterprises"]}
-    other = next(item["enterprise"]["id"] for item in client.get("/api/enterprises", params={"line": "inspiration", "week": WEEK}).json()["rows"] if item["enterprise"]["id"] not in owners)
-    preview = client.post(f"/api/drafts/{draft['id']}/pushes", json={"enterprises": [other]}).json()
-    assert preview["blocked"][0]["enterprise"]["id"] == other
-    assert preview["receivers"] == []
-    assert not any(key.startswith("_") for key in preview)
-    assert client.post(f"/api/pushes/{preview['id']}/confirm", json={"receiverUserIds": [1]}).status_code == 422
-    cancelled = client.post(f"/api/pushes/{preview['id']}/cancel").json()
-    assert cancelled["state"] == "cancelled"
-    assert client.post(f"/api/pushes/{preview['id']}/cancel").json() == cancelled
+def test_fd_write_routes_are_unavailable(client):
+    for path in ("/api/fd-account/check", "/api/pushes/unused/confirm", "/api/pushes/unused/cancel", "/api/drafts/unused/pushes", "/api/drafts/unused/publish"):
+        response = client.post(path, json={})
+        assert response.status_code == 404
+        assert response.json()["code"] == "not_found"
 
 
-def test_rerun_real_model_preflight_requires_price_before_payment(client):
-    directory = client.app.state.store.directory
-    (directory / "runtime.json").symlink_to(ROOT / "data/runtime.json")
-    task = real_task(client)
-    response = client.post("/api/reruns", json={"sourceRowKey": task["rowKey"], "prompt": task["prompt"], "model": "gpt-image-2"})
-    assert response.status_code == 200
-    rerun = response.json()
-    assert rerun["estimatedPoints"] is None and rerun["spentPoints"] is None
-    assert rerun["provider"] == "litellm" and rerun["estimatedCost"] is None
-    assert rerun["sourceTask"]["inputs"] == task["inputs"]
-    assert client.post(f"/api/reruns/{rerun['id']}/confirm").json()["code"] == "rerun_price_required"
-    assert not (directory / "reruns").exists()
+def test_retired_rerun_and_analysis_routes_are_unavailable(client):
+    for path in ("/api/reruns", "/api/reruns/unused/confirm", "/api/automation/analysis"):
+        assert client.post(path, json={}).status_code == 404
+    assert not (client.app.state.store.directory / "reruns").exists()
 
 
 def test_findings_and_cross_line_use_real_records(client):
     finding = client.get("/api/findings").json()[0]
-    body = {key: value for key, value in finding.items() if key not in ("id", "updatedAt")}
+    body = {key: value for key, value in finding.items() if key not in ("id", "updatedAt", "rechecks")}
     created = client.post("/api/findings", json=body).json()
     assert client.patch(f"/api/findings/{created['id']}", json={"verdict": "open"}).json()["verdict"] == "open"
     value = client.get("/api/cross-line", params={"week": WEEK}).json()

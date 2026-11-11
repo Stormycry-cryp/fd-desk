@@ -47,6 +47,8 @@ from .models import (
 from .pushes import Pushes, public
 from .query_cache import QueryCache
 from .reruns import Reruns
+from .rework import ReworkContext
+from .rework import mount as mount_rework
 from .store import Store
 from .workflow import Workflow
 
@@ -65,6 +67,7 @@ def create_app(directory=None):
     reruns = Reruns(engine, thumbnails)
     automation = Automation(workflow)
     queries = QueryCache(store)
+    context = ReworkContext(store, engine, thumbnails, queries)
     with store.connection() as conn:
         for table in ("pushes", "reruns", "automation_jobs"):
             for item in store.items(table):
@@ -74,15 +77,18 @@ def create_app(directory=None):
     lock = RLock()
     @asynccontextmanager
     async def lifespan(app):
+        context.start()
         try:
             yield
         finally:
+            await context.close()
             store.close()
 
     app = FastAPI(title="FD 客户中台", version="0.1.0", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store = store
     app.state.engine = engine
     app.state.queries = queries
+    app.state.rework = context
 
     @app.exception_handler(ApiProblem)
     async def api_problem(request, error):
@@ -135,6 +141,7 @@ def create_app(directory=None):
             if model is not None:
                 group = engine.group(line, week)
                 selected = set(group.loc[group.model == model, "enterprise_id"])
+                selected.update(row["enterprise"]["id"] for row in result["rows"] if any(item["model"] == model for item in (row.get("conversion") or {}).get("models", [])))
                 result["rows"] = [row for row in result["rows"] if row["enterprise"]["id"] in selected]
             return result
 
@@ -148,13 +155,15 @@ def create_app(directory=None):
             workbook = Workbook()
             sheet = workbook.active
             sheet.title = "客户名单"
-            sheet.append(["企业", "类型", "在约状态", "对应运营", "对应售后", "层级", "变动", "所属池", "任务数", "耗点", "使用天数", "下载率", "下载信号可靠", "同星期本周", "同星期上周", "最近活跃", "下一步"])
+            sheet.append(["企业", "类型", "在约状态", "对应运营", "对应售后", "层级", "变动", "所属池", "任务数", "耗点", "使用天数", "下载率", "下载信号可靠", "同星期本周", "同星期上周", "最近活跃", "下一步", "自由改款本周任务", "自由改款活跃天数", "自由改款下载率", "自由改款近四个完整周任务", "自由改款累计任务", "自由改款主要任务", "转化建议"])
             for row in result["rows"]:
                 if pool is not None and row["pool"] != pool:
                     continue
                 if selected is not None and row["enterprise"]["id"] not in selected:
                     continue
                 values = [row["enterprise"]["name"], row["enterprise"]["kind"], row["contract"], row["owner"]["sales"], row["owner"]["afterSales"], row["level"], row["movement"], row["pool"], row["tasks"], row["points"], row["activeDays"], row["downloadRate"], row["downloadSignalReliable"], row["comparable"]["current"] if row["comparable"] else None, row["comparable"]["previous"] if row["comparable"] else None, row["lastActiveAt"], row["nextAction"]["text"] if row["nextAction"] else None]
+                evidence = row.get("conversion") or {}
+                values.extend(evidence.get(key) for key in ("tasks", "activeDays", "downloadRate", "recentTasks", "totalTasks", "topIntent", "opportunity"))
                 sheet.append(values)
                 for cell in sheet[sheet.max_row]:
                     if isinstance(cell.value, str):
@@ -211,6 +220,7 @@ def create_app(directory=None):
             result = {"id": uuid4().hex, "text": body.text, "createdAt": now()}
             with store.connection() as conn:
                 conn.execute("INSERT INTO notes VALUES (?, ?, ?, ?)", (result["id"], enterprise_id, body.text, result["createdAt"]))
+            context.profiles.migrate_notes()
             return result
 
     @app.delete("/api/notes/{note_id}", status_code=204)
@@ -218,6 +228,7 @@ def create_app(directory=None):
         with store.lock, store.connection() as conn:
             if conn.execute("DELETE FROM notes WHERE id=?", (note_id,)).rowcount == 0:
                 raise ApiProblem(404, "not_found", "备注不存在")
+            conn.execute("DELETE FROM rework_objects WHERE kind='annotation' AND id=?", ("note-" + note_id,))
         return Response(status_code=204)
 
     @app.get("/api/tasks")
@@ -286,9 +297,9 @@ def create_app(directory=None):
 
     @app.get("/api/conversion")
     @queries.cached
-    def get_conversion(line: Line):
+    def get_conversion(line: Line, week: str | None = None):
         with store.lock, lock:
-            return analysis.conversion(engine, line)
+            return analysis.conversion(engine, line, checked_week(week) if week else None)
 
     @app.get("/api/cross-line")
     @queries.cached
@@ -304,7 +315,7 @@ def create_app(directory=None):
     @app.post("/api/findings")
     def post_finding(body: FindingCreate):
         with store.lock, lock:
-            item = {**body.model_dump(), "id": uuid4().hex, "updatedAt": now()}
+            item = {**body.model_dump(), "id": uuid4().hex, "updatedAt": now(), "rechecks": []}
             store.save("findings", item)
             store.changed()
             return item
@@ -420,23 +431,32 @@ def create_app(directory=None):
         if len(content) > MAX_UPLOAD_BYTES:
             raise ApiProblem(413, "import_too_large", "表格超过 64 MB")
         with store.lock, lock:
-            return workflow.import_touches(content)
+            result = workflow.import_touches(content)
+            if result["updated"]:
+                for item in store.items("touches"):
+                    context.followups.sync_legacy(item)
+            return result
 
     @app.post("/api/touches")
     def post_touch(body: TouchCreate):
         with store.lock, lock:
-            return workflow.create_touch(body)
+            result = workflow.create_touch(body)
+            context.followups.sync_legacy(result)
+            return result
 
     @app.patch("/api/touches/{key}")
     def patch_touch(key: str, body: TouchPatch):
         with store.lock, lock:
-            return workflow.patch_touch(key, body)
+            result = workflow.patch_touch(key, body)
+            context.followups.sync_legacy(result)
+            return result
 
     @app.delete("/api/touches/{key}", status_code=204)
     def delete_touch(key: str):
         with store.lock, store.connection() as conn:
             if not conn.execute("DELETE FROM touches WHERE id=?", (key,)).rowcount:
                 raise ApiProblem(404, "not_found", "触达卡片不存在")
+            conn.execute("DELETE FROM rework_objects WHERE kind='followup' AND id=?", (key,))
         return Response(status_code=204)
 
     @app.get("/api/report")
@@ -504,6 +524,16 @@ def create_app(directory=None):
                         conn.execute("INSERT OR REPLACE INTO metadata VALUES (?, ?)", (f"excluded_initialized:{line}", "true"))
             store.changed()
             return validated
+
+    mount_rework(app, context)
+    from .ask_proxy import mount as mount_ask
+    mount_ask(app, context)
+    disabled = ("/api/pushes", "/api/fd-account", "/api/reruns", "/api/automation/analysis", "/api/drafts")
+    app.router.routes[:] = [route for route in app.router.routes if not any(route.path == prefix or route.path.startswith(prefix + "/") for prefix in disabled)]
+
+    @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
+    def missing_api(path: str):
+        raise ApiProblem(404, "not_found", "接口不存在")
 
     @app.get("/{path:path}")
     def static(path: str, request: Request):

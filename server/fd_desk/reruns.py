@@ -4,9 +4,10 @@ from pathlib import Path
 from threading import BoundedSemaphore
 from uuid import uuid4
 
-from .core import ApiProblem, now
+from .core import ROOT, ApiProblem, now
 from .litellm_adapter import credentials, estimate, load_runner
 from .media import original_image
+from .model_capacity import ModelCapacity
 from .pushes import public
 
 
@@ -81,9 +82,10 @@ class Reruns:
             with self.store.lock:
                 item["state"] = "running"
                 self.store.save("reruns", item)
-            submitted = True
-            result = runner.execute_one(built, directory, base, api_key,
-                argparse.Namespace(timeout=600, max_retries=0, resolve_ip=resolve))
+            with ModelCapacity(ROOT / "data").acquire("image"):
+                submitted = True
+                result = runner.execute_one(built, directory, base, api_key,
+                    argparse.Namespace(timeout=600, max_retries=0, resolve_ip=resolve))
             runner.write_json(directory / "result.json", result)
             paths = result.get("response", {}).get("saved_assets", [])
             if result["ok"] and paths:

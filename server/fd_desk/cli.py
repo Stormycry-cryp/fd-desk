@@ -17,11 +17,16 @@ def serve(log_config=uvicorn.config.LOGGING_CONFIG):
 
 def main():
     parser = argparse.ArgumentParser(prog="fd-desk")
-    parser.add_argument("command", choices=("serve", "install-service", "backfill-reports", "scan", "selfcheck", "import"), nargs="?", default="serve")
+    parser.add_argument("command", choices=("serve", "install-service", "install-lan", "backfill-reports", "scan", "selfcheck", "import", "profiles"), nargs="?", default="serve")
     parser.add_argument("file", nargs="?", type=Path)
     parser.add_argument("--replace-range", action="store_true")
     parser.add_argument("--scope", type=Path)
     args = parser.parse_args()
+    if args.command == "profiles":
+        if str(args.file) != "init" or args.replace_range or args.scope:
+            parser.error("档案初始化命令为 fd-desk profiles init")
+        initialize_profiles()
+        return
     if args.command == "import":
         if args.file is None:
             parser.error("import 需要提供文件路径")
@@ -35,6 +40,9 @@ def main():
         serve()
     elif args.command == "install-service":
         from .service import install
+        install()
+    elif args.command == "install-lan":
+        from .lan_service import install
         install()
     elif args.command == "backfill-reports":
         from .reports import backfill
@@ -52,6 +60,15 @@ def main():
     else:
         from .verification import selfcheck
         print(json.dumps(selfcheck(), ensure_ascii=False, indent=2))
+
+
+def initialize_profiles():
+    import httpx
+
+    with httpx.Client(base_url="http://127.0.0.1:8765", timeout=60) as client:
+        response = client.post("/api/profiles/init")
+        response.raise_for_status()
+        print(dump({"run": response.json(), "persistent": True, "status": "/api/pipeline"}), flush=True)
 
 
 if __name__ == "__main__":

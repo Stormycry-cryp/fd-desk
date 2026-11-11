@@ -208,6 +208,9 @@ def main():
                 raise SystemExit(1) from None
         state.update(lastSuccessAt=now(), lastError=None)
         write_state(state_path, state)
+        if dates:
+            from fd_desk.pipeline import queue_event
+            queue_event(store)
 
 
 if __name__ == "__main__":

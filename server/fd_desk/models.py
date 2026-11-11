@@ -7,7 +7,7 @@ from .core import Line, Source
 Kind = Literal["customer", "internal", "agency", "unknown"]
 Contract = Literal["active", "trial", "internal", "expired", "unknown"]
 Pattern = Literal["retry", "tweak", "batch", "adapt", "rework", "new", "agent", "none"]
-AlertKind = Literal["drop", "vanished", "stuck", "cold_start", "mismatch", "waste", "failures", "reuse", "surge"]
+AlertKind = Literal["drop", "vanished", "stuck", "cold_start", "mismatch", "waste", "failures", "reuse", "surge", "trend"]
 Pool = Literal["retain", "recall", "help", "keep", "nurture", "convert"]
 
 
@@ -134,6 +134,34 @@ class Excluded(Input):
     video: list[str]
 
 
+class PipelineSettings(Input):
+    concurrency: int = Field(default=3, ge=1, le=3)
+    profilesPerRun: int = Field(default=40, ge=1, le=1000)
+    profileMinTasks: int = Field(default=20, ge=1)
+    profileMaxAgeDays: int = Field(default=28, ge=1)
+    dailyJobs: int = Field(default=120, ge=1, le=10000)
+
+
+class TrialSettings(Input):
+    dailyLimit: float = Field(default=50, ge=0)
+    currency: Literal["CNY", "USD"] = "CNY"
+    maxCases: int = Field(default=12, ge=1, le=100)
+    maxArms: int = Field(default=3, ge=1, le=10)
+    concurrency: int = Field(default=4, ge=1, le=16)
+
+
+class FollowupSettings(Input):
+    suggestionsPerWeek: int = Field(default=12, ge=0, le=12)
+
+
+class TrendSettings(Input):
+    churnGapWeeks: int = Field(default=2, ge=2, le=52)
+    churnStableWeeks: int = Field(default=2, ge=1, le=8)
+    slideWeeks: int = Field(default=3, ge=1, le=51)
+    slideRatio: float = Field(default=.6, gt=0, le=1)
+    fadeRatio: float = Field(default=.5, gt=0, le=1)
+
+
 class Settings(Input):
     thresholds: LineThresholds
     alerts: AlertParams
@@ -145,6 +173,10 @@ class Settings(Input):
     pushDailyLimit: int = Field(ge=0)
     rerunDailyBudget: float = Field(ge=0)
     rerunCurrency: Literal["CNY", "USD"]
+    pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
+    trials: TrialSettings = Field(default_factory=TrialSettings)
+    followups: FollowupSettings = Field(default_factory=FollowupSettings)
+    trends: TrendSettings = Field(default_factory=TrendSettings)
 
 
 class SettingsPatch(Input):
@@ -158,6 +190,10 @@ class SettingsPatch(Input):
     pushDailyLimit: int | None = None
     rerunDailyBudget: float | None = None
     rerunCurrency: Literal["CNY", "USD"] | None = None
+    pipeline: PipelineSettings | None = None
+    trials: TrialSettings | None = None
+    followups: FollowupSettings | None = None
+    trends: TrendSettings | None = None
 
     @model_validator(mode="after")
     def validate_fields(self):

@@ -65,11 +65,14 @@ class Store:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
             columns = {row["name"] for row in conn.execute("PRAGMA table_xinfo(tasks)")}
-            for column, field in (("scene", "scene"), ("user_phone", "user_phone")):
+            for column, field in (("scene", "scene"), ("user_phone", "user_phone"), ("downloaded", "downloaded"), ("failed", "failed"), ("points", "points")):
                 if column not in columns:
-                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT GENERATED ALWAYS AS (json_extract(payload, '$.{field}')) VIRTUAL")
+                    value_type = "INTEGER" if column in ("downloaded", "failed", "points") else "TEXT"
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {column} {value_type} GENERATED ALWAYS AS (json_extract(payload, '$.{field}')) VIRTUAL")
             conn.execute("CREATE INDEX IF NOT EXISTS tasks_conversion ON tasks(enterprise_id, line, week, scene, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS tasks_members ON tasks(enterprise_id, user_phone)")
+            conn.execute("CREATE INDEX IF NOT EXISTS tasks_free_design_stats ON tasks(enterprise_id,week,created_at,user_phone,downloaded,failed,points) WHERE scene='自由改款'")
+            conn.execute("DROP INDEX IF EXISTS tasks_free_design")
             if not conn.execute("SELECT 1 FROM settings").fetchone():
                 conn.execute("INSERT INTO settings VALUES (1, ?)", (dump(read_spec("settings.default.json")),))
                 for i, item in enumerate(read_spec("seeds.json")["findings"]):
@@ -79,6 +82,10 @@ class Store:
             if "rerunDailyBudget" not in settings:
                 settings.update(rerunDailyBudget=0, rerunCurrency="CNY")
                 conn.execute("UPDATE settings SET value=? WHERE id=1", (dump(settings),))
+            defaults = read_spec("settings.default.json")
+            for section in ("pipeline", "trials", "followups", "trends"):
+                settings[section] = {**defaults[section], **settings.get(section, {})}
+            conn.execute("UPDATE settings SET value=? WHERE id=1 AND value<>?", (dump(settings), dump(settings)))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('analytics_revision','0')")
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('facts_revision','0')")
             for table in ("tasks", "enterprises", "settings", "findings", "authored", "coverage", "notes", "alert_state", "imports", "drafts", "touches", "pushes", "reruns", "automation_jobs"):

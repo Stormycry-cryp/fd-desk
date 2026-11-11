@@ -81,7 +81,9 @@ def install():
         subprocess.run(["launchctl", "enable", f"{domain}/{LABEL}"], check=True)
     if current.returncode or previous != configuration:
         subprocess.run(["launchctl", "bootstrap", domain, str(destination)], check=True)
-    print(dump({"label": LABEL, "plist": str(destination), "url": "http://127.0.0.1:8765"}))
+    from .ask_service import install as install_ask
+    ask = install_ask()
+    print(dump({"label": LABEL, "plist": str(destination), "url": "http://127.0.0.1:8765", "ask": ask}))
 
 
 def run():

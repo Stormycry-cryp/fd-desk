@@ -48,7 +48,20 @@ def roster(engine, line, week):
     from .workflow import Workflow
     rows = Workflow(engine).roster(line, week)
     return {"line": line, "week": week, "rows": rows, "poolCounts": {pool: sum(row["pool"] == pool for row in rows) for pool in POOLS},
-        "models": sorted(str(model) for model in engine.group(line, week).model.dropna().unique())}
+        "models": sorted({str(model) for model in engine.group(line, week).model.dropna().unique()} |
+                         {model["model"] for row in rows for model in (row.get("conversion") or {}).get("models", [])})}
+
+
+def retention(engine, line, week):
+    engine.refresh()
+    previous = shift_week(week, -1)
+    if not engine.coverage(line, week)["complete"] or not engine.coverage(line, previous)["complete"]:
+        return None
+    def stable_ids(key):
+        return {row["enterprise"]["id"] for row in engine.base_roster(line, key) if row["level"] in ("heavy", "medium")}
+    before = stable_ids(previous)
+    kept = len(before & stable_ids(week))
+    return {"base": len(before), "kept": kept, "rate": kept / len(before) if before else None}
 
 
 def overview(engine, line, week):
@@ -118,7 +131,8 @@ def overview(engine, line, week):
         part = engine.group(line, history_week)
         full = engine.coverage(line, history_week)["complete"]
         history_levels = Counter(engine.level(line, group, full) for _, group in part.groupby("enterprise_id"))
-        history.append({"week": history_week, "complete": full,
+        retained = retention(engine, line, history_week)
+        history.append({"week": history_week, "complete": full, "retention": retained["rate"] if retained else None,
             "stable": history_levels["heavy"] + history_levels["medium"] if full else None,
             "heavy": history_levels["heavy"] if full else None, "medium": history_levels["medium"] if full else None,
             "activeEnterprises": int(part.enterprise_id.nunique()), "tasks": len(part), "points": int(part.points.sum()), "downloadRate": rate(part)})
@@ -147,7 +161,7 @@ def overview(engine, line, week):
     return {
         "line": line, "week": week, "coverage": coverage,
         "previousCoverage": previous_coverage if previous_coverage["days"] else None, "comparableWeekdays": days,
-        "stable": stable, "levels": levels,
+        "stable": stable, "levels": levels, "retention": retention(engine, line, week),
         "activeEnterprises": metric(lambda group: int(group.enterprise_id.nunique())),
         "users": metric(lambda group: int(group.user_phone.nunique())), "tasks": metric(len),
         "points": metric(lambda group: int(group.points.sum())), "downloadRate": metric(rate),
@@ -215,6 +229,12 @@ def enterprise_detail(engine, enterprise_id, week):
 
 
 def mover_reason(engine, line, week, mover):
+    with engine.store.connection() as conn:
+        available = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='rework_objects'").fetchone()
+        if available:
+            row = conn.execute("SELECT json_extract(value,'$.headline') FROM rework_objects WHERE kind='movement' AND enterprise_id=? AND line=? AND week=? AND state='done' ORDER BY rowid DESC LIMIT 1", (mover["enterprise"]["id"], line, week)).fetchone()
+            if row and row[0]:
+                return row[0]
     current, previous, _ = engine.comparable(line, week, mover["enterprise"]["id"])
     dimension = "intent" if line == "inspiration" else "mode"
     current_values = current.groupby(dimension).size() if line == "inspiration" else current.groupby(dimension).points.sum()

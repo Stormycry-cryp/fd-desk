@@ -130,6 +130,16 @@ def cluster_indices(engine, line, key):
 
 def conversion(engine, line, week=None):
     engine.refresh()
+    if week is None:
+        with engine.store.connection() as conn:
+            week = conn.execute("SELECT MAX(week) FROM tasks").fetchone()[0]
+        if week is None:
+            return []
+    entity_key = tuple((key, tuple(sorted(item.items()))) for key, item in engine.enterprises.items())
+    cache_key = (engine.facts_version, line, week, entity_key)
+    cache = getattr(engine, "conversion_cache", {})
+    if cache_key in cache:
+        return cache[cache_key]
     bound = " AND t.week<=?" if week is not None else ""
     used_bound = " AND u.week<=?" if week is not None else ""
     parameters = [line, *([week] if week is not None else []), line, *([week] if week is not None else [])]
@@ -146,11 +156,20 @@ def conversion(engine, line, week=None):
         candidate["scenes"].append({"scene": row["scene"], "tasks": row["tasks"]})
         candidate["lastActiveAt"] = max(candidate["lastActiveAt"], row["last_active"])
     result = []
+    from .conversion_stats import free_design
+    evidence = free_design(engine, list(candidates), line, week)
     for eid, candidate in candidates.items():
         item = engine.enterprises[eid]
         result.append({"enterprise": ref(item), "contract": item["contract"], "owner": {"sales": item["sales"], "afterSales": item["after_sales"]},
-            "scenes": candidate["scenes"], "lastActiveAt": candidate["lastActiveAt"], "suggestedDraftId": None})
-    return sorted(result, key=lambda item: item["lastActiveAt"], reverse=True)
+            "scenes": candidate["scenes"], "lastActiveAt": candidate["lastActiveAt"], "suggestedDraftId": None,
+            "conversion": evidence[eid]})
+    result.sort(key=lambda item: (-item["conversion"]["tasks"], -item["conversion"]["recentTasks"], item["enterprise"]["id"]))
+    cache = {key: value for key, value in cache.items() if key[0] == engine.facts_version}
+    while len(cache) >= 8:
+        cache.pop(next(iter(cache)))
+    cache[cache_key] = result
+    engine.conversion_cache = cache
+    return result
 
 
 def cross_line(engine, week):

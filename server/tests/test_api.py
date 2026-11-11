@@ -57,7 +57,8 @@ def test_overview_and_incomplete_week(client, line, tasks, stable, points):
     response = client.get("/api/overview", params={"line": line, "week": WEEK})
     assert response.status_code == 200
     overview = response.json()
-    assert set(overview) == {"line", "week", "coverage", "previousCoverage", "comparableWeekdays", "stable", "levels", "activeEnterprises", "users", "tasks", "points", "downloadRate", "failed", "concentration", "history", "movers", "moverCounts", "alerts", "inspiration", "video"}
+    assert set(overview) == {"line", "week", "coverage", "previousCoverage", "comparableWeekdays", "stable", "levels", "activeEnterprises", "users", "tasks", "points", "downloadRate", "failed", "concentration", "history", "movers", "moverCounts", "alerts", "inspiration", "video", "retention"}
+    assert overview["retention"] is None
     assert overview["tasks"]["value"] == tasks
     assert overview["stable"]["value"] == stable
     assert overview["points"]["value"] == points
@@ -118,7 +119,11 @@ def test_task_fields_pagination_filters_and_sampling(client, line):
     assert max(Counter(task["sampleReason"] for task in sample["items"]).values()) <= 2
     assert len({task["rowKey"] for task in sample["items"]}) == len(sample["items"])
     for task in sample["items"]:
-        assert set(task) == {"rowKey", "sourceId", "turnKey", "line", "scene", "mode", "createdAt", "enterprise", "user", "model", "prompt", "inputs", "outputs", "points", "status", "failed", "downloaded", "downloadVia", "failure", "durationSeconds", "intent", "pattern", "chainId", "sampleReason", "config"}
+        assert set(task) == {"rowKey", "sourceId", "turnKey", "line", "scene", "mode", "createdAt", "enterprise", "user", "model", "prompt", "inputs", "outputs", "points", "status", "failed", "downloaded", "downloadVia", "failure", "durationSeconds", "intent", "pattern", "chainId", "sampleReason", "config", "fdUrl"}
+        if line == "inspiration":
+            assert task["fdUrl"].endswith(f"/workbench/chatting-image/design/{task['sourceId']}")
+        else:
+            assert task["fdUrl"] is None
         assert task["createdAt"].endswith("+08:00")
         assert isinstance(task["config"]["referenceImages"], int)
         assert isinstance(task["config"]["hasReferenceVideo"], bool)
