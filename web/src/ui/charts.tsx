@@ -279,7 +279,7 @@ export const Heatmap = ({ days, format = (v: number) => String(Math.round(v)), o
   const labelW = 22
   const gap = 4
   const n = grid.cols.length
-  const gapPx = n < 20 ? 6 : gap
+  const gapPx = n < 20 && maxCell > 30 ? 6 : gap
   const cell = n ? Math.max(10, Math.min(maxCell, Math.floor((w - labelW - gapPx * (n - 1)) / n))) : maxCell
   const width = labelW + n * cell + Math.max(0, n - 1) * gapPx
   return (

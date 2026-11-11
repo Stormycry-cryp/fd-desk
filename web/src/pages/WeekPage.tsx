@@ -190,7 +190,7 @@ const Activity = ({ o }: { o: Overview }) => {
             <Heatmap
               days={days.map((d) => ({ date: d.date, covered: d.covered, value: val(d), note: d.covered ? `${num(d.tasks)} 任务 · ${compact(d.points)} 点 · ${d.enterprises} 家${d.downloadRate != null ? ` · 下载 ${pct(d.downloadRate)}` : ""}` : undefined }))}
               format={(n) => `${f(n)} ${unit}`}
-              maxCell={44}
+              maxCell={24}
             />
           </div>
           <div className="act-side">
