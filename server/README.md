@@ -38,11 +38,11 @@ node agent/verify-lan.mjs http://chem.local:8767
 ~/.local/bin/uv run --directory server fd-desk selfcheck
 ```
 
-自检使用隔离数据库和既有真实输入，对照 `spec/golden.json` 验证统计和重复导入，并写入验证与夹具目录。它不验证模型、生图或问答的端到端能力。常规测试可在 `server/` 使用现有环境运行 `pytest`。`fd-desk profiles init` 需要后端已启动，提交持久初始化申请后立即返回，进度通过 `GET /api/pipeline` 查看。每批最多十家，批次依次执行，后台最多三个模型请求；已完成档案跳过，失败企业冷却十分钟后可再次处理。达到每日模型任务额度后保存进度，次日继续；服务恢复后继续未完成批次。
+自检使用隔离数据库和既有真实输入，对照 `spec/golden.json` 验证统计和重复导入，并写入验证与夹具目录。它不验证模型、生图或问答的端到端能力。常规测试可在 `server/` 使用现有环境运行 `pytest`。`fd-desk profiles init` 需要后端已启动，提交持久初始化申请后立即返回，进度通过 `GET /api/pipeline` 查看。每批最多十家，批次依次执行，后台最多三个模型请求；已完成档案跳过，失败企业冷却十分钟后可再次处理。文字模型任务不设每日数量或金额上限，服务恢复后继续未完成批次。
 
 ## 配置与数据
 
-SQLite 默认位于 `data/fd-desk.db`，采用 WAL；上传暂存和工作文件位于 `data/work/`。`FD_DESK_DATA_DIR` 可覆盖运行数据目录。默认设置来源是 `spec/settings.default.json`，运行设置持久化在数据库，通过 `GET/PUT /api/settings` 读取或更新。`pipeline` 控制模型任务并发、每次档案数量、最少任务数、档案最大年龄和每日模型任务数；`trials` 控制预算、币种、用例数、写法数和并发；`followups.suggestionsPerWeek` 控制每周建议数量。以运行时设置为准，默认值分别为流水线并发 3、每批档案 40、最低 20 个任务、28 天、每日 120 个模型任务；试验每日 50 CNY、最多 12 个用例和 3 个写法、并发 4；每周跟进建议 12 条。
+SQLite 默认位于 `data/fd-desk.db`，采用 WAL；上传暂存和工作文件位于 `data/work/`。`FD_DESK_DATA_DIR` 可覆盖运行数据目录。默认设置来源是 `spec/settings.default.json`，运行设置持久化在数据库，通过 `GET/PUT /api/settings` 读取或更新。`pipeline` 控制模型任务并发、每次档案数量、最少任务数和档案最大年龄；`trials` 控制预算、币种、用例数、写法数和并发；`followups.suggestionsPerWeek` 控制每周建议数量。以运行时设置为准，默认值分别为流水线并发 3、每批档案 40、最低 20 个任务、28 天；试验每日 50 CNY、最多 12 个用例和 3 个写法、并发 4；每周跟进建议 12 条。
 
 模型分析使用 `data/runtime.json` 指定的本机 Codex CLI、Codex Home、模型、渠道和推理强度；当前为 `gpt-6.1-sol`、`ultra`、`custom`。任务输入、结构化输出和进程记录保存在 `data/analysis/`。问答使用独立 pi 进程，通过知衣网关调用 `gpt-6.1-sol`、`high`，配置在 `data/private/zhiyi-gateway.json`，会话存储在 `data/ask/`。试验台调用 LiteLLM Skill runner，固定使用内网 `http://litellm-gray.sometimes.cn`，凭据读取本机 Skill 外的配置，估算费用和 FD 映射来自 `data/private/litellm-prices.json`。
 
@@ -70,7 +70,7 @@ Case 文本分析的 `caseAnalysisPricing.database` 指向本机 CC Switch 数�
 - R6 导出：`GET /api/export/:kind` 返回单个 XLSX；`POST /api/export/bundle` 接收 `items`（每项含 `kind` 和字符串参数 `params`），返回任务；完成后从 `GET /api/export/download/:id` 下载 ZIP。
 - 生成记录：`GET /api/records` 按企业、产品线、日期、结果、任务类型、模式、模型、成员、行为、批注和关键字查询；`POST /api/records/sample` 执行有种子的分层抽样；`GET/POST /api/records/analyses` 管理选中记录的模型分析，单项支持查看和删除；`GET /api/records/export` 导出所选记录。`GET /api/trends` 查询多周趋势。类型已并入 `spec/contract.ts`，`contract.records.ts` 保留重导出。
 - Case：`GET /api/cases` 跨企业查询修改链或单条，支持时间、企业、结局、结果、意图、修改方式、模型、模式、企业层级与动向、耗时异常、步数、评价、问题标签、处理状态、收藏夹、批注和关键词。灵感成款默认修改链，视频默认单条。`GET /api/cases/:id?unit=` 返回完整步骤及批注；`/api/cases/reviews` 批量保存或清除手工评价，单条覆盖链继承；`/tags` 管理十六个预置标签和自定义标签，支持归档；`/collections` 管理收藏夹；`/batches` 执行四种抽样并保存批次。抽样按原始记录保存历史，删除批次保留抽样历史和评价。
-- Case 分析和问题看板：`POST /api/cases/analyses/estimate` 返回 Case、图片数量和预计 USD 金额；`POST /api/cases/analyses` 使用当前本机 Codex CLI 配置读取真实图片、全部提示词和步骤，返回按问题分类的 Case 证据与待确认初判，保留手工评价，并按 CLI 实际 token 用量计算完成金额。主动分析使用持久任务和共享并发，流水线与既有分析的日任务额度独立计算。`GET /api/cases/issues` 仅统计明确保存的手工标签，提供最近八周变化、影响客户、样本和关联数量。跟进附件支持 Case；模板创建支持 `caseIds` 参考，撰写输入包含完整步骤、评价、批注与本地输入和输出图片，同源图片只保存一次，任务结束后清理图片；试验台候选支持 `caseIds`，取各 Case 第一步。
+- Case 分析和问题看板：`POST /api/cases/analyses/estimate` 返回 Case、图片数量和预计 USD 金额；`POST /api/cases/analyses` 使用当前本机 Codex CLI 配置读取真实图片、全部提示词和步骤，返回按问题分类的 Case 证据与待确认初判，保留手工评价，并按 CLI 实际 token 用量计算完成金额。主动分析使用持久任务和共享并发。`GET /api/cases/issues` 仅统计明确保存的手工标签，提供最近八周变化、影响客户、样本和关联数量。跟进附件支持 Case；模板创建支持 `caseIds` 参考，撰写输入包含完整步骤、评价、批注与本地输入和输出图片，同源图片只保存一次，任务结束后清理图片；试验台候选支持 `caseIds`，取各 Case 第一步。
 
 ## 导出列
 

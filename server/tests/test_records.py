@@ -66,7 +66,9 @@ def test_page_filters_facets_sort_and_range(records_client):
     client, context = records_client
     params = {"enterprise": CHENGFU, "scope": "all"}
     page = client.get("/api/records", params=params).json()
-    assert page["total"] == 615
+    with context.store.connection() as connection:
+        expected = connection.execute("SELECT COUNT(*) FROM tasks WHERE enterprise_id=? AND line IN ('inspiration','video')", (CHENGFU,)).fetchone()[0]
+    assert expected > 0 and page["total"] == expected
     assert page["range"]["from"] <= page["range"]["to"]
     assert {item["task"]["line"] for item in page["items"]} == {"inspiration"}
     first = page["items"][0]["task"]

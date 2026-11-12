@@ -298,7 +298,7 @@ export interface ApiNext extends ApiRecords, ApiCases {
   "POST /api/followups": { body: { line: Line; week: WeekKey; enterprise: Id; goal: Pool; reason?: string; script?: string; attachments?: { kind: AttachmentKind; id: Id }[] }; response: Followup }
   "PATCH /api/followups/:id": { body: Partial<{ goal: Pool; state: FollowupState; script: string; reply: string | null; suggested: boolean; attachments: { kind: AttachmentKind; id: Id }[] }>; response: Followup }
   "DELETE /api/followups/:id": { response: null }
-  "GET /api/pipeline": { response: { latest: PipelineRun | null; history: PipelineRun[]; limits: { profilesPerRun: number; concurrency: number }; initialization: { id: string; state: "running" | "waiting" | "daily_limit" | "complete"; requestedAt: Timestamp; nextAttemptAt: Timestamp | null; eligible: number; completed: number; remaining: number } | null; capacity: { totalLimit: number; reservedSlots: number; serviceLimit: number; backgroundLimit: number; running: number; queued: number; categories: { category: string; state: "queued" | "running"; count: number }[] } } }
+  "GET /api/pipeline": { response: { latest: PipelineRun | null; history: PipelineRun[]; limits: { profilesPerRun: number; concurrency: number }; initialization: { id: string; state: "running" | "waiting" | "complete"; requestedAt: Timestamp; nextAttemptAt: Timestamp | null; eligible: number; completed: number; remaining: number } | null; capacity: { totalLimit: number; reservedSlots: number; serviceLimit: number; backgroundLimit: number; running: number; queued: number; categories: { category: string; state: "queued" | "running"; count: number }[] } } }
   "POST /api/pipeline/run": { body: { steps?: PipelineJobKind[]; week?: WeekKey }; response: PipelineRun }
   "GET /api/jobs/:id": { response: Job }
   "POST /api/findings/:id/recheck": { response: Job }
@@ -908,7 +908,7 @@ export interface Settings {
   pushDailyLimit: number
   rerunDailyBudget: number
   rerunCurrency: "CNY" | "USD"
-  pipeline: { concurrency: number; profilesPerRun: number; profileMinTasks: number; profileMaxAgeDays: number; dailyJobs: number }
+  pipeline: { concurrency: number; profilesPerRun: number; profileMinTasks: number; profileMaxAgeDays: number }
   trials: { dailyLimit: number; currency: "CNY" | "USD"; maxCases: number; maxArms: number; concurrency: number }
   followups: { suggestionsPerWeek: number }
   trends: { churnGapWeeks: number; churnStableWeeks: number; slideWeeks: number; slideRatio: number; fadeRatio: number }

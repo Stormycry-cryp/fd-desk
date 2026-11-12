@@ -11,6 +11,9 @@ from openai import pydantic_function_tool
 from fd_desk.core import ROOT, ApiProblem, now
 from fd_desk.engine import Engine, ref
 from fd_desk.jobs import MODEL_KINDS, Jobs
+from fd_desk.media import Thumbnails
+from fd_desk.model_runner import ModelRunner
+from fd_desk.models import Settings
 from fd_desk.profiles import Profiles
 from fd_desk.record_analysis import RecordAnalyses, Result, mount, numbers
 from fd_desk.records import Records
@@ -38,7 +41,8 @@ def real_context(tmp_path):
     previous_job = json.loads(row[0]) if row else None
     source.close()
     jobs = Jobs(repo, store)
-    context = SimpleNamespace(store=store, repo=repo, engine=Engine(store), jobs=jobs)
+    context = SimpleNamespace(store=store, repo=repo, engine=Engine(store), jobs=jobs,
+                              model=ModelRunner(store), media=Thumbnails(store.directory))
     context.profiles = Profiles(context)
     context.records = Records(context)
     context.record_analyses = RecordAnalyses(context)
@@ -60,7 +64,7 @@ def selected(context, enterprise):
     return context.engine.frame[context.engine.frame.enterprise_id == enterprise].row_key.tolist()[:6]
 
 
-def test_http_validation_and_atomic_quota_rejection(real_context):
+def test_http_validation_and_submission_without_daily_quota(real_context):
     context, client, enterprises, previous_job = real_context
     keys = selected(context, enterprises[0])
     other = selected(context, enterprises[1])[0]
@@ -74,10 +78,32 @@ def test_http_validation_and_atomic_quota_rejection(real_context):
     settings["pipeline"]["dailyJobs"] = 1
     with context.store.connection() as conn:
         conn.execute("UPDATE settings SET value=? WHERE id=1", (json.dumps(settings),))
+    assert not (context.store.directory / "runtime.json").exists()
     response = client.post("/api/records/analyses", json=body)
-    assert response.status_code == 409 and response.json()["code"] == "analysis_daily_limit"
-    assert context.repo.find("record_analysis") == []
-    assert len(context.repo.find("job")) == 1
+    assert response.status_code == 200
+    analysis = response.json()
+    assert context.repo.get("record_analysis", analysis["id"])["rowKeys"] == keys
+    assert context.jobs.get(analysis["id"])["kind"] == "record_analysis"
+    assert len(context.repo.find("job")) == 2
+    with pytest.raises(ApiProblem) as error:
+        context.jobs.wait(analysis["id"])
+    assert error.value.payload["code"] == "codex_unconfigured"
+
+
+def test_persisted_settings_remove_daily_quota_on_restart(tmp_path):
+    store = Store(tmp_path)
+    settings = store.settings()
+    settings["pipeline"]["dailyJobs"] = 1
+    with store.connection() as conn:
+        conn.execute("UPDATE settings SET value=? WHERE id=1", (json.dumps(settings),))
+    store.close()
+    restarted = Store(tmp_path)
+    try:
+        expected = {**settings, "pipeline": {key: value for key, value in settings["pipeline"].items() if key != "dailyJobs"}}
+        assert restarted.settings() == expected
+        assert Settings.model_validate(restarted.settings()).model_dump() == expected
+    finally:
+        restarted.close()
 
 
 def test_real_input_schema_and_evidence(real_context):

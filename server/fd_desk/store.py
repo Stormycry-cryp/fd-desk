@@ -85,6 +85,7 @@ class Store:
             defaults = read_spec("settings.default.json")
             for section in ("pipeline", "trials", "followups", "trends"):
                 settings[section] = {**defaults[section], **settings.get(section, {})}
+            settings["pipeline"].pop("dailyJobs", None)
             conn.execute("UPDATE settings SET value=? WHERE id=1 AND value<>?", (dump(settings), dump(settings)))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('analytics_revision','0')")
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('facts_revision','0')")

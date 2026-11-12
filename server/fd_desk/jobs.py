@@ -5,8 +5,7 @@ from uuid import uuid4
 
 from .core import ApiProblem, digest, now
 
-DAILY_LIMIT_KINDS = {"profiles", "movement", "opportunities", "draft_write", "finding_recheck", "record_analysis"}
-MODEL_KINDS = DAILY_LIMIT_KINDS | {"case_analysis"}
+MODEL_KINDS = {"profiles", "movement", "opportunities", "draft_write", "finding_recheck", "record_analysis", "case_analysis"}
 
 
 class Jobs:
@@ -33,17 +32,11 @@ class Jobs:
         if operation not in self.handlers:
             raise ValueError("任务处理器尚未注册")
         with self.store.lock, self.lock:
-            today = now()[:10]
-            limit = self.store.settings()["pipeline"]["dailyJobs"]
             with self.store.connection() as conn:
                 if signature:
                     found = conn.execute("SELECT value FROM rework_objects WHERE kind='job' AND json_extract(value,'$.signature')=? AND state IN ('queued','running','done') LIMIT 1", (signature,)).fetchone()
                     if found:
                         return json.loads(found[0])["job"]
-                marks = ",".join("?" for _ in DAILY_LIMIT_KINDS)
-                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(DAILY_LIMIT_KINDS))).fetchone()[0]
-            if kind in DAILY_LIMIT_KINDS and used >= limit:
-                raise ApiProblem(409, "analysis_daily_limit", f"今日模型任务已达到{limit}项上限")
             key = job_id or uuid4().hex
             job = {"id": key, "kind": kind, "state": "queued", "progress": {"done": 0, "total": total},
                    "result": None, "error": None, "createdAt": now(), "finishedAt": None}

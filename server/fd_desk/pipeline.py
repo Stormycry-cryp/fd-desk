@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict
 
 from .core import LINES, ROOT, ApiProblem, now, validate_week
-from .jobs import DAILY_LIMIT_KINDS
 from .model_capacity import ModelCapacity
 from .views import meta
 
@@ -200,18 +199,14 @@ class Pipeline:
                 return
             if initial["nextAttemptAt"] and initial["nextAttemptAt"] > now():
                 return
-            today = now()[:10]
-            marks = ",".join("?" for _ in DAILY_LIMIT_KINDS)
-            with self.store.connection() as conn:
-                used = conn.execute(f"SELECT COUNT(*) FROM rework_objects WHERE kind='job' AND substr(json_extract(value,'$.job.createdAt'),1,10)=? AND json_extract(value,'$.job.kind') IN ({marks})", (today, *sorted(DAILY_LIMIT_KINDS))).fetchone()[0]
-            if used >= self.store.settings()["pipeline"]["dailyJobs"]:
-                tomorrow = (datetime.fromisoformat(now()) + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
-                initial.update(state="daily_limit", nextAttemptAt=tomorrow.isoformat())
-                self.repo.save("profile_initialization", initial)
-                return
             self.create(["profiles"], initialize=True)
 
     def recover(self):
+        with self.store.lock:
+            for initial in self.repo.find("profile_initialization"):
+                if initial["state"] == "daily_limit":
+                    initial.update(state="waiting", nextAttemptAt=None)
+                    self.repo.save("profile_initialization", initial)
         for item in self.repo.find("pipeline"):
             if item["finishedAt"] is None:
                 self.active[item["id"]] = self.executor.submit(self.execute, item["id"])

@@ -139,7 +139,6 @@ class PipelineSettings(Input):
     profilesPerRun: int = Field(default=40, ge=1, le=1000)
     profileMinTasks: int = Field(default=20, ge=1)
     profileMaxAgeDays: int = Field(default=28, ge=1)
-    dailyJobs: int = Field(default=120, ge=1, le=10000)
 
 
 class TrialSettings(Input):
