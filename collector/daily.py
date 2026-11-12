@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
+from fd_desk.account_collection import collect_accounts
 from fd_desk.codex_runner import execute, runtime
 from fd_desk.core import ROOT, ZONE, ApiProblem, dump, now
 from fd_desk.ingest import fingerprint, import_file, load_validation
@@ -81,7 +82,7 @@ def prompt_for(day, directory):
 范围配置：{SCOPE}。保持在约、体验客户和指定全部场景，其他筛选为空。
 可写范围仅为 {directory}。不得修改项目源码、web、zy-web、客户资料或后台记录。
 使用已有登录页面，通过页面文本或 DOM 确认筛选和数据；禁止视觉操作、截图、提取凭据另行请求接口。
-本机已经验证 Chrome 的 Apple Events JavaScript 可以使用。DOM 工具命令为 uv run --directory {ROOT / 'server'} python {ROOT / 'collector/browser.py'}，它只访问已有的 FD 生成记录标签页。
+本机已经验证 Chrome 的 Apple Events JavaScript 可以使用。DOM 工具命令为 uv run --directory {ROOT / 'server'} python {ROOT / 'collector/browser.py'}，它维护此任务专用的 FD 生成记录标签页。工具自身维护 {ROOT / 'data/collector/browser.json'} 的标签页编号已经获得授权，可以直接运行。
 需要操作控件时，将 JavaScript 源码写入本次 data 目录，然后使用 browser.py --script <脚本路径> --output <结果路径>。通过原生 DOM 查询和点击操作已有页面，禁止读取 Cookie、浏览器存储或自行发送接口请求。
 可以读取浏览器默认下载目录，检查本次点击之后实际生成的文件，并仅将本次成功核验的原始文件移入 {directory}；不得修改其他下载文件。
 先检查目录中已有的 runs、manifest、校验报告、实际下载文件和未完成请求。复用有效文件，继续缺失范围。
@@ -208,7 +209,21 @@ def main():
                 raise SystemExit(1) from None
         state.update(lastSuccessAt=now(), lastError=None)
         write_state(state_path, state)
-        if dates:
+        try:
+            account_result = collect_accounts(store)
+        except Exception as error:  # noqa: BLE001 账户采集单独记录失败，保留已经完成的生成记录导入。
+            detail = error.payload if isinstance(error, ApiProblem) else {"code": "accounts_collection_failed", "message": f"账户采集失败：{type(error).__name__}"}
+            state.update(accountsError=detail, accountsAttemptAt=now())
+            write_state(state_path, state)
+            print(dump({"accounts": detail}), flush=True)
+            if dates:
+                from fd_desk.pipeline import queue_event
+                queue_event(store)
+            raise SystemExit(1) from None
+        state.update(accountsError=None, accountsAttemptAt=now())
+        write_state(state_path, state)
+        print(dump({"accounts": account_result}), flush=True)
+        if dates or account_result["state"] == "done":
             from fd_desk.pipeline import queue_event
             queue_event(store)
 

@@ -51,6 +51,24 @@ CREATE INDEX IF NOT EXISTS touches_enterprise_week ON touches(enterprise_id, wee
 CREATE TABLE IF NOT EXISTS pushes (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reruns (id TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_jobs (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS account_runs (
+    id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT, taken_at TEXT,
+    state TEXT NOT NULL, rows INTEGER NOT NULL DEFAULT 0, matched INTEGER NOT NULL DEFAULT 0,
+    unmatched INTEGER NOT NULL DEFAULT 0, error TEXT, fingerprint TEXT UNIQUE, source TEXT
+);
+CREATE INDEX IF NOT EXISTS account_runs_latest ON account_runs(state, taken_at DESC);
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    enterprise_id TEXT NOT NULL REFERENCES enterprises(id), taken_at TEXT NOT NULL,
+    sales TEXT, after_sales TEXT, total_points REAL NOT NULL, used_7d REAL NOT NULL,
+    used_yesterday REAL NOT NULL, remaining REAL NOT NULL, internal INTEGER NOT NULL,
+    run_id TEXT NOT NULL REFERENCES account_runs(id), PRIMARY KEY(enterprise_id, taken_at)
+);
+CREATE INDEX IF NOT EXISTS account_snapshots_time ON account_snapshots(taken_at, enterprise_id);
+CREATE INDEX IF NOT EXISTS account_snapshots_run ON account_snapshots(run_id, enterprise_id);
+CREATE TABLE IF NOT EXISTS account_unmatched (
+    run_id TEXT NOT NULL REFERENCES account_runs(id), row_no INTEGER NOT NULL,
+    value TEXT NOT NULL, PRIMARY KEY(run_id, row_no)
+);
 """
 
 ITEM_TABLES = {"drafts", "touches", "pushes", "reruns", "automation_jobs", "findings"}
@@ -64,6 +82,10 @@ class Store:
         with self.connection() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
+            enterprise_columns = {row["name"] for row in conn.execute("PRAGMA table_info(enterprises)")}
+            if "owner_manual" not in enterprise_columns:
+                conn.execute("ALTER TABLE enterprises ADD COLUMN owner_manual INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE enterprises SET owner_manual=1 WHERE sales IS NOT NULL OR after_sales IS NOT NULL")
             columns = {row["name"] for row in conn.execute("PRAGMA table_xinfo(tasks)")}
             for column, field in (("scene", "scene"), ("user_phone", "user_phone"), ("downloaded", "downloaded"), ("failed", "failed"), ("points", "points")):
                 if column not in columns:
@@ -89,12 +111,15 @@ class Store:
             conn.execute("UPDATE settings SET value=? WHERE id=1 AND value<>?", (dump(settings), dump(settings)))
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('analytics_revision','0')")
             conn.execute("INSERT OR IGNORE INTO metadata VALUES ('facts_revision','0')")
-            for table in ("tasks", "enterprises", "settings", "findings", "authored", "coverage", "notes", "alert_state", "imports", "drafts", "touches", "pushes", "reruns", "automation_jobs"):
+            conn.execute("INSERT OR IGNORE INTO metadata VALUES ('accounts_revision','0')")
+            for table in ("tasks", "enterprises", "settings", "findings", "authored", "coverage", "notes", "alert_state", "imports", "drafts", "touches", "pushes", "reruns", "automation_jobs", "account_snapshots", "account_runs"):
                 for action in ("INSERT", "UPDATE", "DELETE"):
                     conn.execute(f"CREATE TRIGGER IF NOT EXISTS analytics_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")
             for table in ("tasks", "coverage"):
                 for action in ("INSERT", "UPDATE", "DELETE"):
                     conn.execute(f"CREATE TRIGGER IF NOT EXISTS facts_{table}_{action} AFTER {action} ON {table} BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='facts_revision'; END")
+            for action in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(f"CREATE TRIGGER IF NOT EXISTS accounts_revision_{action} AFTER {action} ON account_snapshots BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='accounts_revision'; END")
             for action in ("INSERT", "UPDATE", "DELETE"):
                 record = "old" if action == "DELETE" else "new"
                 conn.execute(f"CREATE TRIGGER IF NOT EXISTS account_{action} AFTER {action} ON metadata WHEN {record}.key='fd_account' BEGIN UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='analytics_revision'; END")

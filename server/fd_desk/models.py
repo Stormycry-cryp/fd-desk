@@ -7,7 +7,7 @@ from .core import Line, Source
 Kind = Literal["customer", "internal", "agency", "unknown"]
 Contract = Literal["active", "trial", "internal", "expired", "unknown"]
 Pattern = Literal["retry", "tweak", "batch", "adapt", "rework", "new", "agent", "none"]
-AlertKind = Literal["drop", "vanished", "stuck", "cold_start", "mismatch", "waste", "failures", "reuse", "surge", "trend"]
+AlertKind = Literal["drop", "vanished", "stuck", "cold_start", "mismatch", "waste", "failures", "reuse", "surge", "trend", "low_points"]
 Pool = Literal["retain", "recall", "help", "keep", "nurture", "convert"]
 
 

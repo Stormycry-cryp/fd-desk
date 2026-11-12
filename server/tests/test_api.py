@@ -84,7 +84,7 @@ def test_roster_history_and_detail_contract(client):
         assert all(point["level"] is None for point in row["spark"] if not point["complete"])
     key = roster["rows"][0]["enterprise"]["id"]
     detail = client.get(f"/api/enterprises/{key}", params={"week": WEEK}).json()
-    assert set(detail) == {"enterprise", "adminPhone", "contract", "owner", "firstSeenAt", "lastActiveAt", "summary", "lines", "alerts", "touches", "notes"}
+    assert set(detail) == {"enterprise", "adminPhone", "contract", "owner", "account", "firstSeenAt", "lastActiveAt", "summary", "lines", "alerts", "touches", "notes"}
     assert digest(detail["adminPhone"], 10) == key
     for line in detail["lines"].values():
         if line is not None:

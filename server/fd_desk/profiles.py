@@ -11,7 +11,8 @@ import pandas as pd
 from fastapi import FastAPI, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .core import ZONE, ApiProblem, Line, digest, now, shift_week, validate_week, week_key
+from .accounts import is_low
+from .core import ZONE, ApiProblem, Line, digest, dump, now, shift_week, validate_week, week_key
 from .engine import ref
 from .media import Thumbnails
 from .profile_facts import calculate
@@ -144,7 +145,9 @@ class Profiles:
     def facts(self, enterprise):
         with self.store.lock:
             key = self.calculation_key(enterprise)
-            return self.cached_calculation("facts", key, self.facts_cache, lambda: calculate(self.engine, enterprise))
+            facts = self.cached_calculation("facts", key, self.facts_cache, lambda: calculate(self.engine, enterprise))
+            account = self.engine.accounts.get(enterprise)
+            return {scope: {**value, "account": account} if value and account else value for scope, value in facts.items()}
 
     def record(self, enterprise):
         try:
@@ -182,9 +185,12 @@ class Profiles:
         self.repo.save("annotation", item)
         return item
 
-    def snapshot(self, enterprise):
-        annotations = self.annotations(enterprise)
-        return self.snapshot_stats(enterprise) | {"annotations": digest(json.dumps(annotations, ensure_ascii=False, sort_keys=True))}
+    def snapshot(self, enterprise, annotations=None):
+        annotations = self.annotations(enterprise) if annotations is None else annotations
+        account = self.engine.accounts.get(enterprise)
+        return self.snapshot_stats(enterprise) | {"annotations": digest(json.dumps(annotations, ensure_ascii=False, sort_keys=True)),
+                                                  "account": digest(dump(account)) if account else None,
+                                                  "accountLow": is_low(account)}
 
     def snapshot_stats(self, enterprise):
         with self.store.lock:
@@ -235,6 +241,8 @@ class Profiles:
         old = record.get("snapshot") or {}
         if snapshot["annotations"] != old.get("annotations"):
             return True
+        if snapshot["accountLow"] != old.get("accountLow", False) or (snapshot["account"] is not None and old.get("account") is None):
+            return True
         if snapshot == old:
             return False
         weeks = snapshot["weeks"]
@@ -248,7 +256,7 @@ class Profiles:
         count = facts["totals"]["tasks"] if facts else 0
         snapshot = None
         if annotations is not None and record["generatedAt"]:
-            snapshot = self.snapshot_stats(enterprise) | {"annotations": digest(json.dumps(annotations, ensure_ascii=False, sort_keys=True))}
+            snapshot = self.snapshot(enterprise, annotations)
         state = "facts_only" if count < settings["profileMinTasks"] else "none" if not record["version"] else "stale" if self.is_pending(enterprise, record, snapshot, facts, settings) else "ready"
         if running and running["job"]["state"] in ("queued", "running"):
             state = "generating"
@@ -406,6 +414,10 @@ class Profiles:
                 if facts:
                     for name, value in facts["totals"].items():
                         catalog[f"{scope}.totals.{name}"] = {"label": name, "value": str(value) if value is not None else None, "target": {"page": "enterprise", "enterprise": enterprise, "tab": "profile", "section": "facts.core"}}
+                    if facts.get("account"):
+                        for name, label in (("remaining", "剩余点数"), ("total", "账户总点数"), ("used7d", "近七日消耗"), ("usedYesterday", "昨日消耗"), ("daysLeft", "预计可用天数"), ("takenAt", "账户采集时间")):
+                            value = facts["account"][name]
+                            catalog[f"{scope}.account.{name}"] = {"label": label, "value": str(value) if value is not None else None, "target": {"page": "enterprise", "enterprise": enterprise, "tab": "data", "section": "account"}}
             candidates = frame[frame.inputs.map(bool) & frame.outputs.map(bool)].copy()
             annotations = defaultdict(list)
             for annotation in profile["annotations"]:

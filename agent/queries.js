@@ -1,4 +1,4 @@
-const customerFilters = ["pool", "level", "movement", "alert", "trend", "models", "intent", "tags", "noted", "q"];
+const customerFilters = ["pool", "level", "movement", "alert", "trend", "models", "intent", "tags", "noted", "q", "owner", "points"];
 const split = value => typeof value === "string" ? value.split(",").map(item => item.trim()).filter(Boolean) : [];
 
 export function effectiveArgs(args, context = {}) {
@@ -52,7 +52,7 @@ export async function getJson(path, params = {}) {
 }
 
 export async function queryCustomers(args) {
-  const base = { line: args.line, week: args.week };
+  const base = { line: args.line, week: args.week, owner: args.owner, points: args.points };
   const selectedModels = split(args.models);
   const selectedTrends = split(args.trend);
   if (selectedTrends.some(kind => !["churned", "sliding", "fading"].includes(kind))) throw Error("多周趋势筛选无效");

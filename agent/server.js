@@ -33,7 +33,9 @@ const State = defineDoc({ kind: "fd.ask", version: 1, scope: "conversation", his
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const queryDefs = {
   overview: ["/api/overview", ["line", "week"], "week"],
-  customers: ["/api/enterprises", ["line", "week", "model"], "customers"],
+  customers: ["/api/enterprises", ["line", "week", "model", "owner", "points"], "customers"],
+  owners: ["/api/owners", ["line"], "customers"],
+  unmatched_accounts: ["/api/accounts/unmatched", [], "data"],
   profile_roster: ["/api/profiles/roster", ["line", "week"], "customers"],
   tags: ["/api/tags", ["line"], "customers"],
   profile: ["/api/profiles/:enterprise", [], "enterprise"],
@@ -90,6 +92,8 @@ Object.assign(parameters.properties, {
   outcome: { type: "string" }, steps: { type: "string" }, rating: { type: "string" }, tag: { type: "string" },
   status: { type: "string" }, collection: { type: "string" }, slow: choice,
   trend: { type: "string", description: "客户多周趋势，churned、sliding、fading；多值使用逗号分隔" },
+  owner: { type: "string", description: "销售或售后姓名，精确匹配任一负责人" },
+  points: { type: "string", enum: ["low", ""], description: "只查看点数快用完的账户，空字符串清除筛选" },
   view: {
     type: "object", properties: {
       fields: { type: "array", items: { type: "string" }, description: "每条记录要保留的字段，可用 enterprise.id 等字段路径" },
@@ -101,7 +105,7 @@ Object.assign(parameters.properties, {
 });
 const opening = new Map();
 const closing = new Map();
-const policy = `${instructions}\n客户名单支持 pool、level、movement、alert、trend、models、intent、tags、noted、q；同一维度多值用逗号分隔，标签使用 dimension:value。转化页使用 pool=convert，列表的 conversion 字段提供自由改款任务、下载率、近期变化、主要任务与转化建议；顶层 tasks 继续表示目标功能的使用量。分析转化机会时依据 conversion 的实际使用证据，并将建议与已验证事实分别说明。`;
+const policy = `${instructions}\n客户名单支持 pool、level、movement、alert、trend、models、intent、tags、noted、q、owner、points；同一维度多值用逗号分隔，标签使用 dimension:value。转化页使用 pool=convert，列表的 conversion 字段提供自由改款任务、下载率、近期变化、主要任务与转化建议；顶层 tasks 继续表示目标功能的使用量。分析转化机会时依据 conversion 的实际使用证据，并将建议与已验证事实分别说明。\ncustomers、enterprise 和 profile.facts 提供 account：remaining 剩余点数、total 总点数、used7d 近七日消耗、usedYesterday 昨日消耗、daysLeft 按近七日速度预计可用天数、trend 每日余额、takenAt 实际采集时间、internal 内部账号。点数属于整个 FD+ 账户，跨产品线汇总时按 enterprise.id 去重；分析外部客户时排除 internal=true。可结合用量、余额和消耗判断续用需求，按负责人汇总并给出跟进建议。余额增长可能包含充值或退款，余额差值不能直接代替实际消耗。历史原因需要对应日期快照，只有当前快照时说明时间范围；没有账户数据时说明缺失。owners 提供负责人及客户数，unmatched_accounts 提供最近快照的未匹配账号，metadata.accountsAt 表示账户数据新鲜度。`;
 const now = () => new Date(Date.now() + 8 * 3600000).toISOString().replace("Z", "+08:00");
 
 function clipped(value, target) {

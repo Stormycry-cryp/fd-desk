@@ -28,20 +28,22 @@ def real_cases(tmp_path):
     previous_tempdir = tempfile.tempdir
     app = create_app(tmp_path)
     context = app.state.rework
-    configuration = json.loads((ROOT / "data/runtime.json").read_text())
-    pricing = configuration["caseAnalysisPricing"]
-    pricing["historyDirectories"] = [str((ROOT / "data" / value).resolve()) for value in pricing["historyDirectories"]]
-    (tmp_path / "runtime.json").write_text(json.dumps(configuration))
-    with sqlite3.connect(f"{(ROOT / 'data/fd-desk.db').as_uri()}?mode=ro", uri=True) as source, context.store.connection() as copied:
-        copied.executemany("INSERT INTO enterprises VALUES (?,?,?,?,?,?,?,?)", source.execute("SELECT * FROM enterprises"))
-        copied.executemany("INSERT INTO tasks(row_key,enterprise_id,line,week,created_at,file_order,row_no,payload) VALUES (?,?,?,?,?,?,?,?)", source.execute("SELECT row_key,enterprise_id,line,week,created_at,file_order,row_no,payload FROM tasks WHERE line IN ('inspiration','video') AND created_at>='2026-11-01' AND created_at<'2026-11-10'"))
-        copied.executemany("INSERT INTO coverage VALUES (?,?,?)", source.execute("SELECT * FROM coverage WHERE day>='2026-11-01' AND day<'2026-11-10'"))
-    client = TestClient(app)
-    yield context, client
-    context.jobs.shutdown()
-    context.trials.shutdown()
-    context.store.close()
-    tempfile.tempdir = previous_tempdir
+    try:
+        configuration = json.loads((ROOT / "data/runtime.json").read_text())
+        pricing = configuration["caseAnalysisPricing"]
+        pricing["historyDirectories"] = [str((ROOT / "data" / value).resolve()) for value in pricing["historyDirectories"]]
+        (tmp_path / "runtime.json").write_text(json.dumps(configuration))
+        with sqlite3.connect(f"{(ROOT / 'data/fd-desk.db').as_uri()}?mode=ro", uri=True) as source, context.store.connection() as copied:
+            copied.executemany("INSERT INTO enterprises(id,name,admin_phone,kind,contract,sales,after_sales,summary,owner_manual) VALUES (?,?,?,?,?,?,?,?,?)", source.execute("SELECT id,name,admin_phone,kind,contract,sales,after_sales,summary,owner_manual FROM enterprises"))
+            copied.executemany("INSERT INTO tasks(row_key,enterprise_id,line,week,created_at,file_order,row_no,payload) VALUES (?,?,?,?,?,?,?,?)", source.execute("SELECT row_key,enterprise_id,line,week,created_at,file_order,row_no,payload FROM tasks WHERE line IN ('inspiration','video') AND created_at>='2026-11-01' AND created_at<'2026-11-10'"))
+            copied.executemany("INSERT INTO coverage VALUES (?,?,?)", source.execute("SELECT * FROM coverage WHERE day>='2026-11-01' AND day<'2026-11-10'"))
+        client = TestClient(app)
+        yield context, client
+    finally:
+        context.jobs.shutdown()
+        context.trials.shutdown()
+        context.store.close()
+        tempfile.tempdir = previous_tempdir
 
 
 def page(client, **params):

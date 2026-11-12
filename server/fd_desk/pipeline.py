@@ -31,6 +31,7 @@ class Pipeline:
         settings = self.store.settings()["pipeline"]
         initialization = self.repo.find("profile_initialization")
         return {"latest": history[0] if history else None, "history": history,
+                "accounts": self.context.engine.accounts.status(),
                 "initialization": {**initialization[0], **self.context.profiles.initialization_counts()} if initialization else None,
                 "capacity": ModelCapacity(ROOT / "data").status(),
                 "limits": {"profilesPerRun": settings["profilesPerRun"], "concurrency": min(3, settings["concurrency"])}}

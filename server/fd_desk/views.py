@@ -21,6 +21,7 @@ def meta(engine):
         "lines": list(LINES), "weeks": weeks, "coverage": coverage,
         "latestWeek": {line: max((item["week"] for item in coverage if item["line"] == line), default=None) for line in LINES},
         "excluded": settings["excluded"], "lastImportAt": jobs[0]["createdAt"] if jobs else None,
+        "accountsAt": engine.accounts.status()["lastSuccessAt"],
         "siteBaseUrl": settings["siteBaseUrl"],
         "fdAccount": {"ready": False, "userName": None, "externalShareAllowed": False, "checkedAt": None},
     }
@@ -46,7 +47,7 @@ def daily(engine, line, start, end, enterprise=None):
 
 def roster(engine, line, week):
     from .workflow import Workflow
-    rows = Workflow(engine).roster(line, week)
+    rows = engine.roster_actions(Workflow(engine).roster(line, week), line)
     return {"line": line, "week": week, "rows": rows, "poolCounts": {pool: sum(row["pool"] == pool for row in rows) for pool in POOLS},
         "models": sorted({str(model) for model in engine.group(line, week).model.dropna().unique()} |
                          {model["model"] for row in rows for model in (row.get("conversion") or {}).get("models", [])})}
@@ -222,6 +223,7 @@ def enterprise_detail(engine, enterprise_id, week):
     return {
         "enterprise": ref(enterprise), "adminPhone": enterprise["admin_phone"], "contract": enterprise["contract"],
         "owner": {"sales": enterprise["sales"], "afterSales": enterprise["after_sales"]},
+        "account": engine.accounts.get(enterprise_id),
         "firstSeenAt": times["first_seen"], "lastActiveAt": times["last_active"],
         "summary": engine.store.authored("summary", enterprise_id), "lines": details, "alerts": alerts,
         "touches": [item for item in Workflow(engine).touches(enterprise=enterprise_id) if item["week"] <= week], "notes": notes,

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 from threading import RLock
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
 from . import analysis, views
+from .accounts import is_low
 from .automation import Automation
 from .core import LINES, ROOT, ApiProblem, Line, dump, now, validate_week
 from .engine import Engine
@@ -137,7 +138,7 @@ def create_app(directory=None):
 
     @app.get("/api/enterprises")
     @queries.cached
-    def get_enterprises(line: Line, week: str, model: str | None = None):
+    def get_enterprises(line: Line, week: str, model: str | None = None, owner: str | None = None, points: Literal["low"] | None = None):
         with store.lock, lock:
             result = views.roster(engine, line, checked_week(week))
             if model is not None:
@@ -145,10 +146,28 @@ def create_app(directory=None):
                 selected = set(group.loc[group.model == model, "enterprise_id"])
                 selected.update(row["enterprise"]["id"] for row in result["rows"] if any(item["model"] == model for item in (row.get("conversion") or {}).get("models", [])))
                 result["rows"] = [row for row in result["rows"] if row["enterprise"]["id"] in selected]
+            if owner is not None:
+                result["rows"] = [row for row in result["rows"] if owner in row["owner"].values()]
+            if points == "low":
+                result["rows"] = [row for row in result["rows"] if is_low(row["account"])]
             return result
 
+    @app.get("/api/owners")
+    @queries.cached
+    def get_owners(line: Line):
+        return engine.accounts.owners(line)
+
+    @app.get("/api/accounts/unmatched")
+    @queries.cached
+    def get_unmatched_accounts():
+        return engine.accounts.unmatched()
+
+    @app.post("/api/accounts/collect")
+    def collect_accounts():
+        return engine.accounts.request()
+
     @app.get("/api/enterprises/export")
-    def export_enterprises(line: Line, week: str, pool: Pool | None = None, ids: str | None = None):
+    def export_enterprises(line: Line, week: str, pool: Pool | None = None, ids: str | None = None, owner: str | None = None, points: Literal["low"] | None = None):
         with store.lock, lock:
             result = views.roster(engine, line, checked_week(week))
             selected = set(ids.split(",")) if ids is not None else None
@@ -158,14 +177,24 @@ def create_app(directory=None):
             sheet = workbook.active
             sheet.title = "客户名单"
             sheet.append(["企业", "类型", "在约状态", "对应运营", "对应售后", "层级", "变动", "所属池", "任务数", "耗点", "使用天数", "下载率", "下载信号可靠", "同星期本周", "同星期上周", "最近活跃", "下一步", "自由改款本周任务", "自由改款活跃天数", "自由改款下载率", "自由改款近四个完整周任务", "自由改款累计任务", "自由改款主要任务", "转化建议"])
+            sheet.cell(1, 4, "销售")
+            sheet.cell(1, 5, "售后")
+            for index, label in enumerate(("剩余点数", "近七日消耗", "预计可用天数"), 25):
+                sheet.cell(1, index, label)
             for row in result["rows"]:
                 if pool is not None and row["pool"] != pool:
                     continue
                 if selected is not None and row["enterprise"]["id"] not in selected:
                     continue
+                if owner is not None and owner not in row["owner"].values():
+                    continue
+                if points == "low" and not is_low(row["account"]):
+                    continue
                 values = [row["enterprise"]["name"], row["enterprise"]["kind"], row["contract"], row["owner"]["sales"], row["owner"]["afterSales"], row["level"], row["movement"], row["pool"], row["tasks"], row["points"], row["activeDays"], row["downloadRate"], row["downloadSignalReliable"], row["comparable"]["current"] if row["comparable"] else None, row["comparable"]["previous"] if row["comparable"] else None, row["lastActiveAt"], row["nextAction"]["text"] if row["nextAction"] else None]
                 evidence = row.get("conversion") or {}
                 values.extend(evidence.get(key) for key in ("tasks", "activeDays", "downloadRate", "recentTasks", "totalTasks", "topIntent", "opportunity"))
+                account = row["account"] or {}
+                values.extend(account.get(key) for key in ("remaining", "used7d", "daysLeft"))
                 sheet.append(values)
                 for cell in sheet[sheet.max_row]:
                     if isinstance(cell.value, str):
@@ -196,7 +225,7 @@ def create_app(directory=None):
                     if value is not None:
                         conn.execute(f"UPDATE enterprises SET {field}=? WHERE id=?", (value, enterprise_id))
                 if body.owner is not None:
-                    conn.execute("UPDATE enterprises SET sales=?, after_sales=? WHERE id=?", (body.owner.sales, body.owner.afterSales, enterprise_id))
+                    conn.execute("UPDATE enterprises SET sales=?, after_sales=?, owner_manual=1 WHERE id=?", (body.owner.sales, body.owner.afterSales, enterprise_id))
                 if body.kind == "internal":
                     settings = store.settings()
                     for line in LINES:

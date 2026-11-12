@@ -175,6 +175,10 @@ class Followups:
                 if pair:
                     reason += f"，同星期用量{pair['previous']}→{pair['current']}"
                 evidence = [{"label": "本周任务数", "value": str(row["tasks"]), "target": {"page": "enterprise", "enterprise": enterprise, "line": line, "week": week, "tab": "data", "section": "facts.weekly"}}]
+                if "low_points" in row["alerts"]:
+                    account = row["account"]
+                    reason += f"；账户剩余{account['remaining']:g}点，近七日消耗{account['used7d']:g}点"
+                    evidence.append({"label": "剩余点数", "value": str(account["remaining"]), "target": {"page": "enterprise", "enterprise": enterprise, "line": line, "week": week, "tab": "data", "section": "account"}})
                 item = {"id": key, "line": line, "week": week, "enterprise": row["enterprise"], "goal": row["pool"], "reason": reason,
                         "evidence": evidence, "attachments": self.attachments(enterprise, line, week, row["pool"]),
                         "script": prior["script"] if prior else authored("", "rule"), "state": "todo", "reply": None, "contactedAt": None,

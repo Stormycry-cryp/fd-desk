@@ -129,7 +129,16 @@ class Movements:
             if len(part) >= 3 and part.iloc[-1].enterprise_id == enterprise and part.iloc[-1].line == line and part.iloc[-1].week in (week, shift_week(week, -1)) and not part.downloaded.any():
                 chains.append({"id": key, "tasks": [str(row) for row in part.row_key], "length": len(part)})
         profile = self.context.profiles.get(enterprise)
+        cutoff = (date.fromisoformat(week) + timedelta(days=6)).isoformat() + "T23:59:59+08:00"
+        account = self.engine.accounts.get(enterprise, at=cutoff)
+        latest_account = self.engine.accounts.get(enterprise)
+        for prefix, snapshot in (("account", account), ("latestAccount", latest_account)):
+            if snapshot:
+                for field, label in (("remaining", "剩余点数"), ("used7d", "近七日消耗"), ("usedYesterday", "昨日消耗"), ("daysLeft", "预计可用天数"), ("takenAt", "账户采集时间")):
+                    if snapshot[field] is not None:
+                        evidence(f"{prefix}.{field}", ("所选周末之前账户：" if prefix == "account" else "当前账户：") + label, snapshot[field], "account")
         return {"enterprise": item["enterprise"], "line": line, "week": week, "comparableWeekdays": days,
+                "account": account, "latestAccount": latest_account,
                 "history": history, "daily": daily, "unresolvedChains": chains,
                 "profile": {"headline": profile["headline"], "insights": profile["insights"], "tags": profile["tags"]},
                 "annotations": profile["annotations"], "evidenceCatalog": catalog}, catalog

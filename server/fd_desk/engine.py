@@ -8,6 +8,7 @@ import orjson
 import pandas as pd
 from rapidfuzz import fuzz
 
+from .accounts import Accounts, is_low
 from .case_index import CaseIndex
 from .core import ROOT, digest, ratio, read_spec, shift_week, week_key
 from .similarity import PromptMatcher
@@ -36,6 +37,7 @@ def ref(enterprise):
 class Engine:
     def __init__(self, store, *, enterprise=None):
         self.store = store
+        self.accounts = Accounts(store)
         self.enterprise = enterprise
         self.version = None
         self.facts_version = None
@@ -458,16 +460,33 @@ class Engine:
         return self.roster_actions(rows, line)
 
     def roster_actions(self, rows, line):
-        return [{**row, "nextAction": self.authored_values.get(("next_action", f"{row['enterprise']['id']}:{line}"), row["nextAction"])} for row in rows]
+        accounts = self.accounts.all()
+        result = []
+        for row in rows:
+            enterprise = row["enterprise"]["id"]
+            account = accounts.get(enterprise)
+            if account and row["enterprise"]["kind"] == "internal":
+                account = {**account, "internal": True}
+            alerts = [kind for kind in row["alerts"] if kind != "low_points"]
+            if is_low(account):
+                alerts.append("low_points")
+            result.append({**row, "account": account, "alerts": alerts,
+                           "nextAction": self.authored_values.get(("next_action", f"{enterprise}:{line}"), row["nextAction"])})
+        return result
 
     def alerts(self, line, week):
-        severities = {"drop": 3, "vanished": 3, "stuck": 2, "cold_start": 2, "mismatch": 2, "waste": 3, "failures": 2, "reuse": 1, "surge": 1, "trend": 3}
+        severities = {"drop": 3, "vanished": 3, "stuck": 2, "cold_start": 2, "mismatch": 2, "waste": 3, "failures": 2, "reuse": 1, "surge": 1, "trend": 3, "low_points": 3}
         trends = {item["enterpriseId"]: item for item in calculate_trends(self, line, week)}
         alerts = []
         for row in self.base_roster(line, week):
             for kind in row["alerts"]:
                 key = digest(f"alert|{line}|{week}|{row['enterprise']['id']}|{kind}")
                 facts = [f"本周任务 {row['tasks']} 个，使用 {row['activeDays']} 天"]
+                if kind == "low_points":
+                    account = row["account"]
+                    facts = [f"剩余点数 {account['remaining']:g}，近七日消耗 {account['used7d']:g}",
+                             f"按近七日速度预计可用 {account['daysLeft']:.1f} 天" if account["daysLeft"] is not None else "近七日没有消耗，预计可用天数未知",
+                             f"账户快照时间 {account['takenAt']}"]
                 if kind == "trend":
                     trend = trends[row["enterprise"]["id"]]
                     label = {"churned": "流失空窗", "sliding": "连续下滑", "fading": "明显回落"}[trend["kind"]]

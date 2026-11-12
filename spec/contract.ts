@@ -38,6 +38,7 @@ export interface ProfileTag { dimension: TagDimension; value: string; source: So
 export interface TagOption { dimension: TagDimension; values: { value: string; count: number }[] }
 export interface ProfileFacts {
   scope: Scope
+  account?: Account | null
   totals: { tasks: number; recentTasks: number; points: number; recentPoints: number; downloadRate: number | null; recentDownloadRate: number | null; activeWeeks: number; stableWeeks: number; firstSeenAt: Timestamp; lastActiveAt: Timestamp | null }
   weekly: WeekPoint[]
   hours: number[][]
@@ -302,7 +303,7 @@ export interface ApiNext extends ApiRecords, ApiCases {
   "POST /api/followups": { body: { line: Line; week: WeekKey; enterprise: Id; goal: Pool; reason?: string; script?: string; attachments?: { kind: AttachmentKind; id: Id }[] }; response: Followup }
   "PATCH /api/followups/:id": { body: Partial<{ goal: Pool; state: FollowupState; script: string; reply: string | null; suggested: boolean; attachments: { kind: AttachmentKind; id: Id }[] }>; response: Followup }
   "DELETE /api/followups/:id": { response: null }
-  "GET /api/pipeline": { response: { latest: PipelineRun | null; history: PipelineRun[]; limits: { profilesPerRun: number; concurrency: number }; initialization: { id: string; state: "running" | "waiting" | "complete"; requestedAt: Timestamp; nextAttemptAt: Timestamp | null; eligible: number; completed: number; remaining: number } | null; capacity: { totalLimit: number; reservedSlots: number; serviceLimit: number; backgroundLimit: number; running: number; queued: number; categories: { category: string; state: "queued" | "running"; count: number }[] } } }
+  "GET /api/pipeline": { response: { latest: PipelineRun | null; history: PipelineRun[]; accounts: { latest: AccountCollection | null; lastSuccessAt: Timestamp | null }; limits: { profilesPerRun: number; concurrency: number }; initialization: { id: string; state: "running" | "waiting" | "complete"; requestedAt: Timestamp; nextAttemptAt: Timestamp | null; eligible: number; completed: number; remaining: number } | null; capacity: { totalLimit: number; reservedSlots: number; serviceLimit: number; backgroundLimit: number; running: number; queued: number; categories: { category: string; state: "queued" | "running"; count: number }[] } } }
   "POST /api/pipeline/run": { body: { steps?: PipelineJobKind[]; week?: WeekKey }; response: PipelineRun }
   "GET /api/jobs/:id": { response: Job }
   "POST /api/findings/:id/recheck": { response: Job }
@@ -327,7 +328,7 @@ export type FailureCategory = "moderation" | "material" | "timeout" | "upstream"
 export type EnterpriseKind = "customer" | "internal" | "agency" | "unknown"
 export type ContractState = "active" | "trial" | "internal" | "expired" | "unknown"
 export type Source = "rule" | "agent" | "manual"
-export type AlertKind = "drop" | "vanished" | "stuck" | "cold_start" | "mismatch" | "waste" | "failures" | "reuse" | "surge" | "trend"
+export type AlertKind = "drop" | "vanished" | "stuck" | "cold_start" | "mismatch" | "waste" | "failures" | "reuse" | "surge" | "trend" | "low_points"
 export type Severity = 1 | 2 | 3
 export type TouchSlot = "mon" | "wed" | "fri"
 export type TouchStatus = "draft" | "assigned" | "sent" | "replied" | "closed"
@@ -388,6 +389,7 @@ export interface Meta {
   latestWeek: Record<Line, WeekKey | null>
   excluded: Record<Line, Id[]>
   lastImportAt: Timestamp | null
+  accountsAt: Timestamp | null
   siteBaseUrl: string
   fdAccount: { ready: boolean; userName: string | null; externalShareAllowed: boolean; checkedAt: Timestamp | null }
 }
@@ -401,6 +403,39 @@ export interface EnterpriseRef {
 export interface Owner {
   sales: string | null
   afterSales: string | null
+}
+
+export interface Account {
+  remaining: number
+  total: number
+  used7d: number
+  usedYesterday: number
+  daysLeft: number | null
+  trend: { date: DateKey; remaining: number }[]
+  internal: boolean
+  takenAt: Timestamp
+}
+
+export interface UnmatchedAccount {
+  name: string
+  phone: string | null
+  sales: string | null
+  afterSales: string | null
+  remaining: number
+  used7d: number
+  takenAt: Timestamp
+}
+
+export interface AccountCollection {
+  id: Id
+  state: "queued" | "running" | "done" | "failed"
+  startedAt: Timestamp
+  finishedAt: Timestamp | null
+  takenAt: Timestamp | null
+  rows: number
+  matched: number
+  unmatched: number
+  error: ApiError | null
 }
 
 export interface WeekPoint {
@@ -519,6 +554,7 @@ export interface RosterRow {
   enterprise: EnterpriseRef
   contract: ContractState
   owner: Owner
+  account: Account | null
   excluded: boolean
   level: Level | null
   movement: Movement
@@ -627,6 +663,7 @@ export interface EnterpriseDetail {
   adminPhone: string
   contract: ContractState
   owner: Owner
+  account: Account | null
   firstSeenAt: Timestamp
   lastActiveAt: Timestamp | null
   summary: Authored | null
@@ -1029,7 +1066,10 @@ export interface Api extends ApiNext, ApiCompatibility {
 
   "GET /api/overview": { query: { line: Line; week: WeekKey }; response: Overview }
 
-  "GET /api/enterprises": { query: { line: Line; week: WeekKey; model?: string }; response: Roster }
+  "GET /api/enterprises": { query: { line: Line; week: WeekKey; model?: string; owner?: string; points?: "low" }; response: Roster }
+  "GET /api/owners": { query: { line: Line }; response: { name: string; role: "sales" | "after_sales"; enterprises: number }[] }
+  "GET /api/accounts/unmatched": { response: UnmatchedAccount[] }
+  "POST /api/accounts/collect": { response: AccountCollection }
   "GET /api/enterprises/:id": { query: { week: WeekKey }; response: EnterpriseDetail }
   "PATCH /api/enterprises/:id": {
     body: Partial<{ kind: EnterpriseKind; contract: ContractState; owner: Owner; summary: string; source: Source }>
@@ -1038,7 +1078,7 @@ export interface Api extends ApiNext, ApiCompatibility {
   "PUT /api/enterprises/:id/next-action": { body: { line: Line; text: string; source: Source }; response: Authored }
   "POST /api/enterprises/:id/notes": { body: { text: string }; response: Note }
   "DELETE /api/notes/:id": { response: null }
-  "GET /api/enterprises/export": { query: { line: Line; week: WeekKey; pool?: Pool; ids?: Id[] }; response: Blob }
+  "GET /api/enterprises/export": { query: { line: Line; week: WeekKey; pool?: Pool; ids?: Id[]; owner?: string; points?: "low" }; response: Blob }
 
   "GET /api/tasks": { query: TaskQuery; response: Page<Task> }
   "GET /api/chains": { query: { line: Line; week: WeekKey; enterprise?: Id; minLength?: number; downloaded?: boolean }; response: Page<Chain> }
