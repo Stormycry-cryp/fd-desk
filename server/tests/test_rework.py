@@ -125,6 +125,33 @@ def test_legacy_note_removal_also_removes_migrated_annotation(client):
     assert all(value["id"] != key for value in client.app.state.rework.repo.find("annotation", enterprise=enterprise))
 
 
+def test_annotation_followup_append_and_edit_preserve_prior_entries(client):
+    task, enterprise = task_and_enterprise(client)
+    response = client.post("/api/annotations", json={"enterprise": enterprise, "kind": "followup", "text": task["prompt"]})
+    assert response.status_code == 200
+    annotation = response.json()
+    original = annotation["entries"][0]
+    endpoint = f"/api/annotations/{annotation['id']}/entries"
+    response = client.post(endpoint, json={"text": task["scene"]})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    appended = response.json()
+    assert appended["entries"][0] == original
+    assert len(appended["entries"]) == 2
+    entry = appended["entries"][1]
+    assert entry["text"] == task["scene"] and entry["id"] != original["id"]
+    assert client.post(endpoint, json={"text": ""}).status_code == 422
+    response = client.patch(f"{endpoint}/{entry['id']}", json={"text": task["prompt"]})
+    assert response.status_code == 200
+    edited = response.json()
+    assert edited["entries"][0] == original
+    assert edited["entries"][1]["text"] == task["prompt"]
+    assert edited["entries"][1]["editedAt"]
+    saved = next(value for value in client.get("/api/annotations", params={"enterprise": enterprise}).json() if value["id"] == annotation["id"])
+    assert saved == edited
+    assert client.app.state.rework.repo.get("annotation", annotation["id"]) == edited
+
+
 def test_code_recheck_appends_without_modifying_finding(client):
     finding = next(value for value in client.get("/api/findings").json() if (value.get("rule") or {}).get("kind") == "mismatch")
     response = client.post(f"/api/findings/{finding['id']}/recheck")

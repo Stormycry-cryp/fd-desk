@@ -48,6 +48,7 @@ const send = async (method: string, url: string, body: unknown) => {
   if (res.status === 204) return null
   if (!type.includes("json")) {
     if (res.ok && !type.includes("html")) return await res.blob()
+    if ([502, 503, 504].includes(res.status)) throw new RequestError(res.status, "backend_unavailable", "后端暂时无法连接，请稍后重试")
     throw new RequestError(res.status, "invalid_response", "本机后端返回了无效响应")
   }
   const data = await res.json()

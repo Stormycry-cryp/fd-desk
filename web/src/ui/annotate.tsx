@@ -129,11 +129,14 @@ export const Composer = ({ anchor, onDone, autoFocus, placeholder = "写批注�
   const [kind, setKind] = useState<AnnotationKind | "none">("none")
   const save = () => {
     const t = text.trim()
-    if (!t || !ctx) return
-    ops.create.mutate({ text: t, kind: kind === "none" ? undefined : kind, anchor: anchor ?? undefined })
-    setText("")
-    setKind("none")
-    onDone?.()
+    if (!t || !ctx || ops.create.isPending) return
+    ops.create.mutate({ text: t, kind: kind === "none" ? undefined : kind, anchor: anchor ?? undefined }, {
+      onSuccess: () => {
+        setText("")
+        setKind("none")
+        onDone?.()
+      },
+    })
   }
   return (
     <div className="ann-composer">
@@ -141,11 +144,12 @@ export const Composer = ({ anchor, onDone, autoFocus, placeholder = "写批注�
       <TextArea
         autoFocus={autoFocus}
         value={text}
+        disabled={ops.create.isPending}
         placeholder={placeholder}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) (e.preventDefault(), save())
-          if (e.key === "Escape") (e.stopPropagation(), onDone?.())
+          if (e.key === "Escape" && !ops.create.isPending) (e.stopPropagation(), onDone?.())
         }}
         style={{ minHeight: 64 }}
       />
@@ -153,11 +157,11 @@ export const Composer = ({ anchor, onDone, autoFocus, placeholder = "写批注�
         <Segmented size="sm" value={kind} onChange={setKind} options={[{ value: "none", label: "不分类" }, { value: "followup", label: "跟进" }, { value: "special", label: "特殊情况" }, { value: "other", label: "其他" }]} />
         <span className="spacer" />
         {onDone && (
-          <Button size="xs" variant="ghost" onClick={onDone}>
+          <Button size="xs" variant="ghost" disabled={ops.create.isPending} onClick={onDone}>
             取消
           </Button>
         )}
-        <Button size="xs" variant="primary" disabled={!text.trim()} onClick={save}>
+        <Button size="xs" variant="primary" disabled={!text.trim() || ops.create.isPending} onClick={save}>
           保存
         </Button>
       </div>
@@ -175,9 +179,13 @@ export const Thread = ({ a, showAnchor }: { a: Annotation; showAnchor?: boolean 
   const pending = a.id.startsWith("tmp")
   const send = () => {
     const t = reply.trim()
-    if (!t) return
-    ops.append.mutate({ id: a.id, text: t })
-    setReply("")
+    if (!t || ops.append.isPending) return
+    ops.append.mutate({ id: a.id, text: t }, { onSuccess: () => setReply("") })
+  }
+  const saveEdit = (entryId: string) => {
+    const text = draft.trim()
+    if (!text || ops.editEntry.isPending) return
+    ops.editEntry.mutate({ id: a.id, entryId, text }, { onSuccess: () => setEditing(null) })
   }
   if (a.resolved && !open)
     return (
@@ -220,7 +228,7 @@ export const Thread = ({ a, showAnchor }: { a: Annotation; showAnchor?: boolean 
               <span className="spacer" />
               {!pending && editing !== en.id && (
                 <span className="ann-acts">
-                  <button onClick={() => (setEditing(en.id), setDraft(en.text))}>编辑</button>
+                  <button disabled={ops.editEntry.isPending} onClick={() => (setEditing(en.id), setDraft(en.text))}>编辑</button>
                   {a.entries.length > 1 && <button onClick={() => ops.removeEntry.mutate({ id: a.id, entryId: en.id })}>删除</button>}
                 </span>
               )}
@@ -230,18 +238,19 @@ export const Thread = ({ a, showAnchor }: { a: Annotation; showAnchor?: boolean 
                 <TextArea
                   autoFocus
                   value={draft}
+                  disabled={ops.editEntry.isPending}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) (e.preventDefault(), draft.trim() && ops.editEntry.mutate({ id: a.id, entryId: en.id, text: draft.trim() }), setEditing(null))
-                    if (e.key === "Escape") (e.stopPropagation(), setEditing(null))
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) (e.preventDefault(), saveEdit(en.id))
+                    if (e.key === "Escape" && !ops.editEntry.isPending) (e.stopPropagation(), setEditing(null))
                   }}
                   style={{ minHeight: 48 }}
                 />
                 <div className="row" style={{ justifyContent: "flex-end", gap: 6 }}>
-                  <Button size="xs" variant="ghost" onClick={() => setEditing(null)}>
+                  <Button size="xs" variant="ghost" disabled={ops.editEntry.isPending} onClick={() => setEditing(null)}>
                     取消
                   </Button>
-                  <Button size="xs" variant="primary" onClick={() => (draft.trim() && ops.editEntry.mutate({ id: a.id, entryId: en.id, text: draft.trim() }), setEditing(null))}>
+                  <Button size="xs" variant="primary" disabled={!draft.trim() || ops.editEntry.isPending} onClick={() => saveEdit(en.id)}>
                     保存
                   </Button>
                 </div>
@@ -256,6 +265,7 @@ export const Thread = ({ a, showAnchor }: { a: Annotation; showAnchor?: boolean 
         <div className="ann-reply">
           <input
             value={reply}
+            disabled={ops.append.isPending}
             placeholder="追加跟进"
             onChange={(e) => setReply(e.target.value)}
             onKeyDown={(e) => {
@@ -263,7 +273,7 @@ export const Thread = ({ a, showAnchor }: { a: Annotation; showAnchor?: boolean 
             }}
           />
           {reply && (
-            <button className="ann-send" onClick={send} aria-label="追加">
+            <button className="ann-send" disabled={ops.append.isPending} onClick={send} aria-label="追加">
               <Icon name="arrowUpRight" size="xs" />
             </button>
           )}
