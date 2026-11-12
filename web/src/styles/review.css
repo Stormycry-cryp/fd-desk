@@ -1402,7 +1402,6 @@
 }
 
 .pool .cx-bar {
-  border-radius: var(--r-lg);
   margin-bottom: 12px;
 }
 
@@ -1607,4 +1606,9 @@
   .lib-big {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+body:has(.peek) .rv-keys {
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
 }

@@ -16,6 +16,7 @@ import { strategyName } from "./model"
 import { createBatch, deleteAnalysis, deleteBatch, estimate, exportCases, makeTemplate, startAnalysis, useBatchRows, useBatches, useLibraryStats, type ViewAnalysis } from "./data"
 import { Pic } from "./CaseRow"
 import type { Page } from "./CasesPage"
+import { StickyBar } from "../../ui/stickybar"
 
 const weekEnd = (w: string) => new Date(new Date(`${w}T00:00:00+08:00`).getTime() + 6 * 86400e3 + 8 * 3600e3).toISOString().slice(0, 10)
 
@@ -505,7 +506,7 @@ export const PoolPanel = ({ p }: { p: Page }) => {
   const made = rows.filter((r) => r.pool?.templateId).length
   return (
     <div className="pool">
-      <div className="cx-bar">
+      <StickyBar className="cx-bar">
         <Checkbox checked={picked.length === rows.length} mixed={picked.length > 0 && picked.length < rows.length} onChange={(on) => setSel(on ? new Set(rows.map(caseKey)) : new Set())} />
         <span className="faint num">
           {rows.length} 条{made ? ` · 已生成 ${made}` : ""}
@@ -542,7 +543,7 @@ export const PoolPanel = ({ p }: { p: Page }) => {
             </div>
           )}
         </Popover>
-      </div>
+      </StickyBar>
       <div className="pool-grid">
         {rows.map((r, i) => (
           <PoolCard key={caseKey(r)} r={r} p={p} on={sel.has(caseKey(r))} onToggle={() => toggle(r)} onOpen={() => p.open(rows, i, "可做模板")} />

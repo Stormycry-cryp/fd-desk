@@ -20,6 +20,7 @@ import { CaseViewer, type ViewerCtx } from "./CaseViewer"
 import { SharedCtx, buildShared, type Shared } from "./Review"
 import { AnalysesPanel, AnalyzeButton, BatchesPanel, LibraryStatsView, PoolPanel } from "./Panels"
 import * as S from "./store"
+import { StickyBar } from "../../ui/stickybar"
 
 type Tab = "list" | "library" | "pool" | "batches" | "analyses"
 
@@ -409,7 +410,7 @@ const ListView = ({ p, scope, filters: f, setFilters: setF, sel, select, setSel,
           <FilterChip label="动向" multi value={f.movement} onChange={(v) => set("movement", v)} options={opts(fc?.movements, (k) => movementName[k as keyof typeof movementName] ?? k)} />
         </div>
       )}
-      <div className="cx-bar">
+      <StickyBar className="cx-bar">
         <Checkbox
           checked={allSel}
           mixed={rows.some((r) => sel.has(caseKey(r))) && !allSel}
@@ -459,7 +460,7 @@ const ListView = ({ p, scope, filters: f, setFilters: setF, sel, select, setSel,
         <Button size="sm" variant="ghost" icon="download" onClick={() => exportCases({ line: p.line, week: p.week, unit: p.unit, rows: null, filters: f, legacy: p.legacy, scope, tags: p.tags })}>
           导出
         </Button>
-      </div>
+      </StickyBar>
       {list.loading ? (
         <div className="rv-list">
           {[0, 1, 2].map((i) => (

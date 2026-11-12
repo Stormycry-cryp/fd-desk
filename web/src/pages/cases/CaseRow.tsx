@@ -134,7 +134,9 @@ export const CaseCard = memo(function CaseCard({ r, review, notes, pool, process
         <Inputs ins={r.first.inputs} onOpen={() => act.open(r, null)} />
         <Icon name="arrowRight" size="xs" className="rv-arrow" />
         <div className={cx("rv-res", r.last.result)} onClick={(e) => (e.stopPropagation(), act.open(r, null))}>
-          <Pic m={out} peek={false} />
+          <Peek media={out} label="结果">
+            <Pic m={out} peek={false} />
+          </Peek>
           {r.stepCount > 1 && <span className="rv-res-n num">{r.stepCount} 步</span>}
           {!out && <span className="rv-res-x">{resultName[r.last.result]}</span>}
           <span className="rv-zoom">
