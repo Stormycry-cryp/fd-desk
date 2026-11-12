@@ -1,0 +1,6 @@
+interface:
+  display_name: "fddata"
+  short_description: "按客户与场景分批导出FD生成记录，完成文件核验、合并和增量整理"
+  default_prompt: "使用 $fddata 从后台分批导出指定日期的FD生成记录，核验完整性并整理可复用的数据和操作说明。"
+policy:
+  allow_implicit_invocation: true

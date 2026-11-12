@@ -1,6 +1,6 @@
 # FD 数据更新
 
-采集使用本机 [fddata 技能](/Users/chenyunzhe/.codex/skills/fddata/SKILL.md)，筛选配置为 `collector/scope.json`，时区为 `Asia/Shanghai`。客户选择在约、体验；场景包含灵感成款快速和 Agent、自由改款及全部视频子场景。导出字段没有客户状态，页面筛选证据随每次采集保存，企业档案的在约状态保持真实已知值。
+采集使用仓库内的 [fddata 技能](../skills/fddata/SKILL.md)，筛选配置为 `collector/scope.json`，时区为 `Asia/Shanghai`。客户选择在约、体验；场景包含灵感成款快速和 Agent、自由改款及全部视频子场景。导出字段没有客户状态，页面筛选证据随每次采集保存，企业档案的在约状态保持真实已知值。
 
 初始数据覆盖 `2026-09-10 00:00:00` 至 `2026-11-09 23:59:59`，共有 302,537 条生成记录。项目通过 `data/inbox/` 中的符号链接引用已经核验的合并文件及其 `.csv.validation.json`，原始资料保存在原有导出目录。用于原有指标自检的两份 Excel 继续保留。
 

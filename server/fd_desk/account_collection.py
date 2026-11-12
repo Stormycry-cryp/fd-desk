@@ -21,7 +21,7 @@ class CollectionResult(BaseModel):
 
 def prompt_for(directory):
     return f"""使用本机 fddata Skill，通过已登录 Chrome 的 DOM 采集真实账户快照。
-先读取 {Path.home() / '.codex/skills/fddata/SKILL.md'} 和 references/browser-export.md。
+先读取 {ROOT / 'skills/fddata/SKILL.md'} 和该 Skill 目录下的 references/browser-export.md。
 目标页面 {ACCOUNT_URL}，页面下方的客户点数记录表。不需要筛选日期。
 只操作此任务专用标签页：uv run --directory {ROOT / 'server'} python {ROOT / 'collector/browser.py'} --page accounts。
 首次先读取页面 DOM、实际表头和总数，确认登录状态。不要操作生成记录标签页。

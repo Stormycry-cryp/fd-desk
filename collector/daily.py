@@ -17,7 +17,7 @@ from fd_desk.store import Store
 
 START = date(2026, 9, 10)
 SCOPE = ROOT / "collector/scope.json"
-SKILL = Path.home() / ".codex/skills/fddata/SKILL.md"
+SKILL = ROOT / "skills/fddata/SKILL.md"
 
 
 class ExportResult(BaseModel):
