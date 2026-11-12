@@ -131,7 +131,7 @@ const Matrix = ({ a, mode, setMode }: { a: InspirationAnalysis; mode: "task" | "
         </div>
       }
     >
-      <div className="heat" style={{ gridTemplateColumns: `120px repeat(${models.length}, minmax(84px, 1fr))` }}>
+      <div className="heat" style={{ gridTemplateColumns: `112px repeat(${models.length}, minmax(0, 1fr))` }}>
         <div />
         {models.map((m) => (
           <div key={m} className="h">

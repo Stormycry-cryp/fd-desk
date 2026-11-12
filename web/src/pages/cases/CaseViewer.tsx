@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import type { Annotation, Media } from "@spec/contract"
+import type { Media } from "@spec/contract"
 import { failureName, levelName, movementName, patternName } from "../../lib/labels"
 import { time } from "../../lib/format"
 import { fdUrl } from "../../lib/fd"
@@ -7,96 +7,87 @@ import { navigate } from "../../lib/route"
 import { Button, IconButton, Kbd, Segmented, cx } from "../../ui/controls"
 import { Badge, copyText } from "../../ui/display"
 import { Icon } from "../../ui/icons"
-import { Menu, Portal, Tooltip } from "../../ui/overlays"
-import { CompareStage, compareModeName, type CompareMode } from "../../ui/compare"
+import { Portal } from "../../ui/overlays"
+import { CompareStage, MediaView, compareModeName, type CompareMode } from "../../ui/compare"
 import { DiffText } from "../../ui/prompt"
-import { AnnotationScope, Composer, Thread } from "../../ui/annotate"
-import type { CaseAnalysis, CaseCollection, CaseRating, CaseReview, CaseStatus, CaseTag, Row, Step } from "./types"
+import { AnnotationScope, Thread } from "../../ui/annotate"
+import type { CaseTag, Review, Row, Step } from "./types"
 import { caseKey } from "./types"
-import { outcomeLong, ratingName, resultName, statusName } from "./model"
-import { OutcomePill, RatingPills } from "./CaseRow"
-import type { ReviewPatch } from "./store"
+import { blockOf, blocksOf, durText, outcomeLong, resultName } from "./model"
+import { OutcomePill } from "./CaseRow"
+import { NoteBox, TagBar, notesForBlocks, useShared } from "./Review"
+import { useCaseDetail } from "./data"
 
 export interface ViewerCtx {
-  review: (r: Row) => CaseReview | null
-  stepReview: (r: Row, rowKey: string) => CaseReview | null
-  rate: (r: Row, p: ReviewPatch) => void
-  rateStep: (r: Row, rowKey: string, p: ReviewPatch) => void
-  tags: CaseTag[]
-  addTag: (label: string) => Promise<CaseTag | null>
-  anns: Annotation[]
-  collections: CaseCollection[]
-  inCollection: (r: Row) => string[]
-  toggleCollection: (r: Row, id: string, on: boolean) => void
-  newCollection: (r: Row) => void
+  review: (r: Row) => Review | null
+  stepReview: (r: Row, s: Step) => Review | null
+  toggleTag: (r: Row, s: Step | null, t: CaseTag) => void
+  createTag: (r: Row, s: Step | null, label: string) => void
+  note: (r: Row, s: Step | null, text: string) => void
+  inPool: (r: Row) => boolean
+  pool: (r: Row) => void
   selected: Set<string>
-  toggleSelect: (r: Row) => void
-  ai: Map<string, CaseAnalysis["perCase"][number]>
-  detail: (r: Row) => Row | null
+  select: (r: Row) => void
+  ai: Map<string, { tags: string[]; note: string }>
 }
 
-type Ref = { kind: "input"; i: number } | { kind: "prev" }
+type Mode = CompareMode | "tile"
+const modeName: Record<Mode, string> = { tile: "平铺", ...compareModeName }
+const modes: Mode[] = ["tile", "side", "slide", "flip"]
 
-const durText = (s: number | null | undefined) => (s == null ? "—" : s >= 60 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${Math.round(s)} 秒`)
+type Ref = { kind: "input"; i: number } | { kind: "step"; i: number }
 
-export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { rows: Row[]; index: number; setIndex: (i: number) => void; onClose: () => void; ctx: ViewerCtx; title?: string }) => {
+const thumb = (m: Media) => (m.kind === "video" ? m.poster ?? m.thumb : m.thumb)
+
+let lastMode: Mode | null = null
+
+export const CaseViewer = ({ rows, index, step: initStep, setIndex, onClose, ctx, title }: { rows: Row[]; index: number; step: number | null; setIndex: (i: number) => void; onClose: () => void; ctx: ViewerCtx; title?: string }) => {
+  const sh = useShared()
   const base = rows[index]
-  const row = (base && ctx.detail(base)) ?? base
+  const detail = useCaseDetail(base ?? null, sh.week)
+  const row = detail.data && base && detail.data.id === base.id ? detail.data : base
   const steps: Step[] = row ? row.steps ?? (row.stepCount > 1 ? [row.first, row.last] : [row.last]) : []
-  const [si, setSi] = useState(steps.length - 1)
-  const [mode, setMode] = useState<CompareMode>("side")
+  const [si, setSi] = useState(initStep ?? steps.length - 1)
+  const [mode, setMode] = useState<Mode>(lastMode ?? ((row?.first.inputs.length ?? 0) > 1 ? "tile" : "side"))
   const [flip, setFlip] = useState(false)
   const [ref, setRef] = useState<Ref | null>(null)
-  const [perStep, setPerStep] = useState(false)
-  const [tagQ, setTagQ] = useState<string | null>(null)
+  const [perStep, setPerStep] = useState(initStep != null)
+  const [searching, setSearching] = useState(false)
   const side = useRef<HTMLDivElement>(null)
-  const seen = useRef(new Set<string>())
   useEffect(() => {
     setSi(Math.max(0, steps.length - 1))
     setRef(null)
     setPerStep(false)
-    setTagQ(null)
-  }, [base?.id, base?.unit, steps.length])
-  useEffect(() => setRef(null), [si])
-  const step = steps[Math.min(si, steps.length - 1)]
-  const prev = si > 0 ? steps[si - 1] : null
-  const cur: Ref = ref ?? (prev && prev.outputs[0] ? { kind: "prev" } : { kind: "input", i: 0 })
-  const left: Media | null = cur.kind === "prev" ? prev?.outputs[0] ?? null : (step?.inputs ?? row?.first.inputs ?? [])[cur.i] ?? null
-  const leftLabel = cur.kind === "prev" ? `第 ${si} 步` : `输入 ${cur.i + 1}`
-  const rightLabel = steps.length > 1 ? `第 ${si + 1} 步` : "结果"
-  const scope = perStep && row?.unit === "chain" && step
-  const rv = row ? (scope ? ctx.stepReview(row, step.rowKey) : ctx.review(row)) : null
-  const patch = (p: ReviewPatch) => {
-    if (!row) return
-    if (scope) ctx.rateStep(row, step.rowKey, p)
-    else ctx.rate(row, p)
-  }
+    setSearching(false)
+  }, [base?.id, base?.unit])
   useEffect(() => {
-    if (!row) return
-    const k = caseKey(row)
-    if (seen.current.has(k)) return
-    seen.current.add(k)
-    const r = ctx.review(row)
-    if (!r || (r.status === "todo" && !r.inherited)) ctx.rate(row, { status: "seen" })
-  }, [row?.id, row?.unit])
-  const tagsOn = new Set(rv?.tags ?? [])
-  const toggleTag = (id: string) => patch(tagsOn.has(id) ? { removeTags: [id] } : { addTags: [id] })
-  const rate = (r: CaseRating | null) => patch({ rating: r })
-  const groups = useMemo(() => {
-    const m = new Map<string, CaseTag[]>()
-    ctx.tags.forEach((t) => m.set(t.group, [...(m.get(t.group) ?? []), t]))
-    return [...m]
-  }, [ctx.tags])
-  const tagHits = tagQ == null ? [] : ctx.tags.filter((t) => !tagQ || t.label.includes(tagQ) || t.group.includes(tagQ))
+    if (initStep != null && steps.length > initStep) setSi(initStep)
+  }, [steps.length])
+  useEffect(() => setRef(null), [si])
+  const pickMode = (m: Mode) => {
+    lastMode = m
+    setMode(m)
+  }
+  const step = steps[Math.min(si, steps.length - 1)]
+  const ins = step?.inputs.length ? step.inputs : row?.first.inputs ?? []
+  const prevOut = si > 0 ? steps[si - 1]?.outputs[0] ?? null : null
+  const cur: Ref = ref ?? (prevOut ? { kind: "step", i: si - 1 } : { kind: "input", i: 0 })
+  const left: Media | null = cur.kind === "step" ? steps[cur.i]?.outputs[0] ?? null : ins[cur.i] ?? null
+  const leftLabel = cur.kind === "step" ? `第 ${cur.i + 1} 步` : `输入 ${cur.i + 1}`
+  const rightLabel = steps.length > 1 ? `第 ${si + 1} 步` : "结果"
+  const chain = row?.unit === "chain" && steps.length > 1
+  const target: Step | null = chain && perStep && step ? step : null
+  const rv = row ? (target ? ctx.stepReview(row, target) : ctx.review(row)) : null
   const go = (d: number) => setIndex(Math.max(0, Math.min(rows.length - 1, index + d)))
+  const toggle = (t: CaseTag) => row && ctx.toggleTag(row, target, t)
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
       if (el.closest("input, textarea, [contenteditable]")) {
-        if (e.key === "Escape") (el as HTMLElement).blur()
+        if (e.key === "Escape") el.blur()
         return
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.metaKey || e.ctrlKey || e.altKey || !row) return
       const k = e.key
       if (k === "Escape") return onClose()
       if (k === "ArrowRight" || k === "Enter") (e.preventDefault(), go(1))
@@ -104,20 +95,18 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
       else if (k === "ArrowDown") (e.preventDefault(), setSi((v) => Math.min(steps.length - 1, v + 1)))
       else if (k === "ArrowUp") (e.preventDefault(), setSi((v) => Math.max(0, v - 1)))
       else if (k === " ") (e.preventDefault(), mode === "flip" ? setFlip((v) => !v) : go(1))
-      else if (k === "1" || k === "2" || k === "3") {
-        const r: CaseRating = k === "1" ? "good" : k === "2" ? "ok" : "bad"
-        rate(rv?.rating === r ? null : r)
-      } else if (k === "t" || k === "T") (e.preventDefault(), setTagQ(""))
-      else if (k === "n" || k === "N") {
-        e.preventDefault()
-        side.current?.querySelector<HTMLTextAreaElement>(".cxv-notes textarea")?.focus()
-      } else if (k === "d" || k === "D") patch({ status: rv?.status === "done" ? "seen" : "done" })
-      else if (k === "x" || k === "X") row && ctx.toggleSelect(row)
-      else if (k === "s" || k === "S") row?.unit === "chain" && setPerStep((v) => !v)
+      else if (/^[0-9]$/.test(k)) {
+        const t = k === "0" ? sh.falseAlarm : sh.quick[Number(k) - 1]
+        if (t) toggle(t)
+      } else if (k === "t" || k === "T") (e.preventDefault(), setSearching(true))
+      else if (k === "c" || k === "C" || k === "n" || k === "N") (e.preventDefault(), side.current?.querySelector<HTMLInputElement>(".rv-note-in")?.focus())
+      else if (k === "p" || k === "P") ctx.pool(row)
+      else if (k === "x" || k === "X") ctx.select(row)
+      else if (k === "s" || k === "S") chain && setPerStep((v) => !v)
       else if (k === "o" || k === "O") {
-        const u = step?.task ? fdUrl(step.task) : row?.fdUrl
+        const u = step?.task ? fdUrl(step.task) : row.fdUrl
         if (u) window.open(u, "_blank", "noopener")
-      } else if (k === "m" || k === "M") setMode((m) => (m === "side" ? "slide" : m === "slide" ? "flip" : "side"))
+      } else if (k === "m" || k === "M") pickMode(modes[(modes.indexOf(mode) + 1) % modes.length])
     }
     window.addEventListener("keydown", f)
     return () => window.removeEventListener("keydown", f)
@@ -128,20 +117,46 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
       document.body.style.overflow = ""
     }
   }, [])
+  const notes = useMemo(() => (row ? notesForBlocks(sh, [...blocksOf(row)]) : []), [row, sh])
   if (!row || !step) return null
   const t = step.task
   const link = t ? fdUrl(t) : row.fdUrl
   const ai = ctx.ai.get(row.id)
-  const blocks = new Set([row.unit === "chain" ? `case:${row.id}` : `record:${row.id}`, ...steps.map((s) => `record:${s.rowKey}`)])
-  const notes = ctx.anns.filter((a) => blocks.has(a.anchor?.block ?? "")).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
-  const inCols = new Set(ctx.inCollection(row))
   const sel = ctx.selected.has(caseKey(row))
-  const failure = t?.failure ?? (si === steps.length - 1 ? row.failure : null)
+  const failure = si === steps.length - 1 ? row.failure : null
   const emptyRight = step.result === "failed" ? `失败${failure ? ` · ${failureName[failure.category]}` : ""}` : step.result === "deleted" ? "客户已删除" : "没有结果"
+  const pool = ctx.inPool(row)
+  const aiNew = ai ? ai.tags.filter((id) => !(rv?.effectiveTags ?? []).includes(id)) : []
   return (
     <Portal>
-      <div className="cxv">
-        <div className="cxv-stage">
+      <div className="cxv rvv">
+        <div className="rvv-rail">
+          <div className="rvv-rail-h">输入</div>
+          {ins.map((m, i) => (
+            <button key={i} className={cx("rvv-ref", cur.kind === "input" && cur.i === i && mode !== "tile" && "on")} onClick={() => (setRef({ kind: "input", i }), mode === "tile" && pickMode("side"))}>
+              <img src={thumb(m)} alt="" />
+              <span className="num">{i + 1}</span>
+            </button>
+          ))}
+          {!ins.length && <span className="rvv-none">无</span>}
+          {steps.length > 1 && (
+            <>
+              <div className="rvv-rail-h">步骤</div>
+              {steps.map((s, i) => (
+                <button key={s.rowKey} className={cx("rvv-ref step", s.result, i === si && "cur", cur.kind === "step" && cur.i === i && i !== si && mode !== "tile" && "on")} onClick={() => setSi(i)}>
+                  {s.outputs[0] ? <img src={thumb(s.outputs[0])} alt="" /> : <span className="x">{resultName[s.result]}</span>}
+                  <span className="num">{i + 1}</span>
+                  {s.result === "downloaded" && (
+                    <span className="dl">
+                      <Icon name="download" size="xs" />
+                    </span>
+                  )}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+        <div className="rvv-stage">
           <div className="cv-top">
             <OutcomePill o={row.outcome} />
             <span className="cxv-title ellipsis">{row.enterprise.name}</span>
@@ -149,17 +164,43 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
               {title ? `${title} · ` : ""}
               {index + 1}/{rows.length}
             </span>
+            {steps.length > 1 && <span className="rvv-stepn num">第 {si + 1}/{steps.length} 步 · {resultName[step.result]}</span>}
             <span className="spacer" />
             <div className="cv-modes">
-              {(["side", "slide", "flip"] as CompareMode[]).map((m) => (
-                <button key={m} className={cx(mode === m && "on")} onClick={() => setMode(m)}>
-                  {compareModeName[m]}
+              {modes.map((m) => (
+                <button key={m} className={cx(mode === m && "on")} onClick={() => pickMode(m)}>
+                  {modeName[m]}
                 </button>
               ))}
             </div>
           </div>
-          <div className="cv-stage">
-            <CompareStage a={left} b={step.outputs[0] ?? null} la={leftLabel} lb={rightLabel} mode={mode} flip={flip} setFlip={setFlip} emptyB={emptyRight} />
+          <div className="rvv-view">
+            {mode === "tile" ? (
+              <div className={cx("rvv-tile", `n${Math.min(ins.length + (prevOut ? 1 : 0), 6)}`)}>
+                <div className="rvv-tile-ins">
+                  {ins.map((m, i) => (
+                    <figure key={i}>
+                      <MediaView m={m} label={`输入 ${i + 1}`} />
+                      <figcaption>输入 {i + 1}</figcaption>
+                    </figure>
+                  ))}
+                  {prevOut && (
+                    <figure className="prev">
+                      <MediaView m={prevOut} label={`第 ${si} 步`} />
+                      <figcaption>第 {si} 步</figcaption>
+                    </figure>
+                  )}
+                </div>
+                <figure className="rvv-tile-out">
+                  <MediaView m={step.outputs[0]} label={rightLabel} empty={emptyRight} />
+                  <figcaption>{rightLabel}</figcaption>
+                </figure>
+              </div>
+            ) : (
+              <div className="cv-stage">
+                <CompareStage a={left} b={step.outputs[0] ?? null} la={leftLabel} lb={rightLabel} mode={mode} flip={flip} setFlip={setFlip} emptyB={emptyRight} />
+              </div>
+            )}
             {index > 0 && (
               <button className="nav-btn l" onClick={() => go(-1)} aria-label="上一个">
                 <Icon name="chevLeft" />
@@ -171,49 +212,18 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
               </button>
             )}
           </div>
-          <div className="cxv-bot">
-            <div className="cxv-refs">
-              <span className="k">对比</span>
-              {(step.inputs.length ? step.inputs : row.first.inputs).slice(0, 6).map((m, i) => (
-                <button key={i} className={cx(cur.kind === "input" && cur.i === i && "on")} onClick={() => setRef({ kind: "input", i })}>
-                  <img src={m.kind === "video" ? m.poster ?? m.thumb : m.thumb} alt="" />
-                  <span>输入 {i + 1}</span>
-                </button>
-              ))}
-              {prev && (
-                <button className={cx("txt", cur.kind === "prev" && "on")} onClick={() => setRef({ kind: "prev" })}>
-                  上一步
-                </button>
-              )}
-            </div>
-            {steps.length > 1 && (
-              <div className="cxv-steps">
-                {steps.map((s, i) => (
-                  <button key={s.rowKey} className={cx(i === si && "on", s.result)} onClick={() => setSi(i)}>
-                    {s.outputs[0] ? <img src={s.outputs[0].kind === "video" ? s.outputs[0].poster ?? s.outputs[0].thumb : s.outputs[0].thumb} alt="" /> : <span className="none">{resultName[s.result]}</span>}
-                    <span className="n num">{i + 1}</span>
-                    {s.result === "downloaded" && (
-                      <span className="dl">
-                        <Icon name="download" size="xs" />
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
           <div className="cv-keys">
             <span><Kbd keys={["←", "→"]} />换一个</span>
             {steps.length > 1 && <span><Kbd keys={["↑", "↓"]} />换一步</span>}
-            <span><Kbd keys={["1", "2", "3"]} />评价</span>
-            <span><Kbd keys={["T"]} />标签</span>
-            <span><Kbd keys={["N"]} />批注</span>
-            <span><Kbd keys={["D"]} />处理完</span>
+            <span><Kbd keys={["1-9"]} />打标签</span>
+            <span><Kbd keys={["T"]} />搜标签</span>
+            <span><Kbd keys={["C"]} />评论</span>
+            <span><Kbd keys={["P"]} />可做模板</span>
             <span><Kbd keys={["M"]} />对比方式</span>
             <span><Kbd keys={["Esc"]} />返回</span>
           </div>
         </div>
-        <div className="cxv-side" ref={side}>
+        <div className="cxv-side rvv-side" ref={side}>
           <div className="cxv-h">
             <div className="stack" style={{ gap: 6, minWidth: 0 }}>
               <button className="cxv-ent" onClick={() => (onClose(), navigate({ ent: row.enterprise.id, tab: "profile" }))}>
@@ -237,8 +247,8 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
           </div>
           <div className="cxv-sec">
             <div className="cxv-lab">
-              <span>评价</span>
-              {row.unit === "chain" && row.stepCount > 1 && (
+              <span>标签</span>
+              {chain && (
                 <Segmented
                   size="sm"
                   value={perStep ? "step" : "case"}
@@ -251,77 +261,48 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
               )}
               <span className="spacer" />
               {rv?.inherited && <span className="faint">沿用整条</span>}
+              <button className={cx("rv-pool", pool && "on")} onClick={() => ctx.pool(row)}>
+                <Icon name={pool ? "check" : "plus"} size="xs" />
+                可做模板
+                <span className="k">P</span>
+              </button>
             </div>
-            <RatingPills value={rv?.rating} onPick={rate} size="lg" />
+            <TagBar review={rv} searching={searching} onSearch={setSearching} onToggle={toggle} onCreate={(l) => ctx.createTag(row, target, l)} />
             {ai && (
               <div className="cxv-ai">
                 <Icon name="wand" size="xs" />
                 <span className="grow">
-                  <b>AI 初判 · {ratingName[ai.rating]}</b>
-                  {ai.note && <span>{ai.note}</span>}
+                  <b>AI 判断</b>
+                  <span>
+                    {ai.tags.map((id) => sh.tagMap.get(id)?.label).filter(Boolean).join("、") || "没有问题"}
+                    {ai.note ? ` · ${ai.note}` : ""}
+                  </span>
                 </span>
-                {rv?.rating !== ai.rating && (
-                  <Button size="xs" variant="soft" onClick={() => patch({ rating: ai.rating, addTags: ai.tags })}>
+                {aiNew.length > 0 && (
+                  <Button size="xs" variant="soft" onClick={() => aiNew.forEach((id) => sh.tagMap.get(id) && toggle(sh.tagMap.get(id)!))}>
                     采纳
                   </Button>
                 )}
               </div>
             )}
-            <div className="cxv-tags">
-              {tagQ != null && (
-                <div className="cxv-tq">
-                  <input
-                    autoFocus
-                    value={tagQ}
-                    placeholder="搜标签，回车选第一个"
-                    onChange={(e) => setTagQ(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        const v = e.currentTarget.value.trim()
-                        const hit = ctx.tags.find((t) => t.label.includes(v) || t.group.includes(v))
-                        if (hit) toggleTag(hit.id)
-                        else if (v) {
-                          const t = await ctx.addTag(v)
-                          if (t) toggleTag(t.id)
-                        }
-                        setTagQ(null)
-                      }
-                      if (e.key === "Escape") (e.stopPropagation(), setTagQ(null))
-                    }}
-                    onBlur={() => setTimeout(() => setTagQ(null), 120)}
-                  />
-                  {tagQ && !tagHits.length && <span className="faint">回车新建「{tagQ}」</span>}
+            <NoteBox onSend={(text) => ctx.note(row, target, text)} placeholder={target ? `评论第 ${si + 1} 步，回车发送` : "写一句评论，回车发送"} />
+            {notes.length > 0 && (
+              <AnnotationScope enterprise={row.enterprise.id} list={notes} mode="inline">
+                <div className="rvv-thread">
+                  {notes.map((a) => (
+                    <Thread key={a.id} a={a} />
+                  ))}
                 </div>
-              )}
-              {groups.map(([g, ts]) => (
-                <div key={g} className="cxv-tg">
-                  <span className="g">{g}</span>
-                  <div className="xs">
-                    {ts.map((t) => (
-                      <button key={t.id} className={cx("cxv-t", t.tone, tagsOn.has(t.id) && "on", tagQ && tagHits[0]?.id === t.id && "hit")} onClick={() => toggleTag(t.id)}>
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="cxv-status">
-              {(["todo", "seen", "done"] as CaseStatus[]).map((s) => (
-                <button key={s} className={cx((rv?.status ?? "todo") === s && "on", s)} onClick={() => patch({ status: s })}>
-                  {s === "done" && <Icon name="check" size="xs" />}
-                  {statusName[s]}
-                </button>
-              ))}
+              </AnnotationScope>
+            )}
+            <div className="rvv-tools">
+              <button className={cx("cxv-sel", sel && "on")} onClick={() => ctx.select(row)}>
+                <Icon name={sel ? "check" : "plus"} size="xs" />
+                {sel ? "已选" : "选中"}
+                <Kbd keys={["X"]} />
+              </button>
               <span className="spacer" />
-              <Tooltip content="选中后可以在列表里批量操作">
-                <button className={cx("cxv-sel", sel && "on")} onClick={() => ctx.toggleSelect(row)}>
-                  <Icon name={sel ? "check" : "plus"} size="xs" />
-                  {sel ? "已选" : "选中"}
-                  <Kbd keys={["X"]} />
-                </button>
-              </Tooltip>
+              {sh.falseAlarm && <span className="faint">0 = {sh.falseAlarm.label}</span>}
             </div>
           </div>
           <div className="cxv-sec">
@@ -333,7 +314,7 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
               <span className="spacer" />
               <IconButton size="xs" icon="copy" label="复制提示词" onClick={() => copyText(step.prompt, "提示词已复制")} />
             </div>
-            <div className="cxv-prompt">{prev && prev.prompt !== step.prompt ? <DiffText from={prev.prompt} to={step.prompt} /> : step.prompt || <span className="faint">没有提示词</span>}</div>
+            <div className="cxv-prompt">{si > 0 && steps[si - 1].prompt !== step.prompt ? <DiffText from={steps[si - 1].prompt} to={step.prompt} /> : step.prompt || <span className="faint">没有提示词</span>}</div>
             <dl className="kv cxv-kv">
               <dt>模型</dt>
               <dd>{t?.model ?? row.model ?? "—"}</dd>
@@ -364,36 +345,12 @@ export const CaseViewer = ({ rows, index, setIndex, onClose, ctx, title }: { row
                   去试验台
                 </Button>
               )}
-              <span className="spacer" />
-              <Menu
-                width={220}
-                trigger={({ toggle, ref }) => (
-              <Button ref={ref as never} size="sm" variant="ghost" icon="book" onClick={toggle}>
-                    {inCols.size ? `收藏 ${inCols.size}` : "收藏"}
-                  </Button>
-                )}
-                items={[
-                  ...ctx.collections.map((c) => ({ key: c.id, label: c.name, icon: inCols.has(c.id) ? ("check" as const) : undefined, onSelect: () => ctx.toggleCollection(row, c.id, !inCols.has(c.id)) })),
-                  { key: "new", label: "新建收藏夹", icon: "plus" as const, sep: ctx.collections.length > 0, onSelect: () => ctx.newCollection(row) },
-                ]}
-              />
             </div>
-          </div>
-          <div className="cxv-sec cxv-notes">
-            <div className="cxv-lab">
-              <span>批注{notes.length ? ` · ${notes.length}` : ""}</span>
-            </div>
-            <AnnotationScope enterprise={row.enterprise.id} list={notes} mode="inline">
-              <div className="stack" style={{ gap: 10 }}>
-                {notes.map((a) => (
-                  <Thread key={a.id} a={a} />
-                ))}
-                <Composer key={`${row.id}:${perStep ? step.rowKey : ""}`} anchor={{ block: perStep || row.unit === "task" ? `record:${step.rowKey}` : `case:${row.id}`, quote: (step.prompt || row.enterprise.name).slice(0, 60) }} placeholder="写批注，⌘↵ 保存" />
-              </div>
-            </AnnotationScope>
           </div>
         </div>
       </div>
     </Portal>
   )
 }
+
+export const viewerBlock = blockOf

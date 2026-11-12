@@ -62,6 +62,7 @@ export const App = () => {
   useKey((e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return
     if (document.querySelector(".cv, .cxv")) return
+    if (route.page === "cases" && /^[0-9]$/.test(e.key)) return
     if (e.key === "1") navigate({ line: "inspiration" }, { replace: true })
     if (e.key === "2") navigate({ line: "video" }, { replace: true })
     if (e.key === "/") (e.preventDefault(), setPalette(true))

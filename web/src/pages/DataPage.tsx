@@ -117,7 +117,7 @@ const Imports = () => {
                           <b className="num">{j.from && j.to ? (j.from === j.to ? j.from.slice(5) : `${j.from.slice(5)} – ${j.to.slice(5)}`) : "—"}</b>
                           <span>{j.file}</span>
                         </div>
-                        {j.error && <Badge tone="warn">{j.error}</Badge>}
+                        {j.error && <span title={j.error} className="imp-err"><Badge tone="warn">{j.error}</Badge></span>}
                       </div>
                     </td>
                     <td className="r num">{num(j.rows)}</td>

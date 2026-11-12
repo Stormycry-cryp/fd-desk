@@ -1942,6 +1942,21 @@ button.stepper .step:hover,
 }
 
 .ev-chip .ev-l {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 18em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ev-chip .ev-l:not(:has(+ .ev-v)) {
+  flex-shrink: 1;
+  max-width: none;
+}
+
+.ev-chip .ev-v {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1953,6 +1968,7 @@ button.stepper .step:hover,
 }
 
 .ev-chip .ev-go {
+  flex: none;
   color: var(--ink-4);
   transition: transform var(--t-fast) var(--ease), color var(--t-fast);
 }

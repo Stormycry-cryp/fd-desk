@@ -28,11 +28,11 @@ export const EvidenceChip = ({ e }: { e: Evidence }) => {
     </>
   )
   return e.target ? (
-    <button className="ev-chip go" onClick={() => locate(e.target as Locator)}>
+    <button className="ev-chip go" title={e.value ? `${e.label} ${e.value}` : e.label} onClick={() => locate(e.target as Locator)}>
       {body}
     </button>
   ) : (
-    <span className="ev-chip">{body}</span>
+    <span className="ev-chip" title={e.value ? `${e.label} ${e.value}` : e.label}>{body}</span>
   )
 }
 

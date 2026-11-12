@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { call, request } from "../../api/client"
+import { useMemo, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { call } from "../../api/client"
 import { errorText } from "../../api/next"
-import { num, time, weekShort } from "../../lib/format"
+import { num, pct, time, weekShort } from "../../lib/format"
 import { navigate } from "../../lib/route"
-import { Button, IconButton, Input, Segmented, Switch, cx } from "../../ui/controls"
-import { Empty, Skel, Thumb } from "../../ui/display"
+import { Button, Checkbox, IconButton, Input, Segmented, Switch, cx } from "../../ui/controls"
+import { Empty, Skel } from "../../ui/display"
 import { Icon } from "../../ui/icons"
 import { Menu, Popover, Tooltip, toast } from "../../ui/overlays"
 import { JobProgress } from "../../ui/insight"
-import type { CaseBatch, CaseCollection, CaseSampleStrategy, Row } from "./types"
-import { caseKey } from "./types"
-import { outcomeName, ratingName, sampleLocal, strategyName, thumbOf } from "./model"
-import { createBatch, deleteAnalysis, deleteBatch, estimate, startAnalysis, useBatchRows, useBatches, useCollectionRows, useIssues, useLocalPool, type ViewAnalysis } from "./data"
-import { CaseList, ListSkeleton, NameModal, type Page } from "./CasesPage"
-import type { useCollectionOps } from "./data"
+import { TrendChart } from "../../ui/charts"
+import type { CaseBatch, CaseFilters, CaseSampleStrategy, CaseTag, Row } from "./types"
+import { caseKey, emptyFilters } from "./types"
+import { strategyName } from "./model"
+import { createBatch, deleteAnalysis, deleteBatch, estimate, exportCases, makeTemplate, startAnalysis, useBatchRows, useBatches, useLibraryStats, type ViewAnalysis } from "./data"
+import { Pic } from "./CaseRow"
+import type { Page } from "./CasesPage"
 
 const weekEnd = (w: string) => new Date(new Date(`${w}T00:00:00+08:00`).getTime() + 6 * 86400e3 + 8 * 3600e3).toISOString().slice(0, 10)
 
@@ -37,7 +38,7 @@ export const AnalyzeButton = ({ p, rows, onDone, label = "AI 分析", variant = 
           onClick={() => {
             toggle()
             setEst(null)
-            estimate(rows, p.server).then(setEst)
+            estimate(rows).then(setEst)
           }}
         >
           {label}
@@ -48,7 +49,7 @@ export const AnalyzeButton = ({ p, rows, onDone, label = "AI 分析", variant = 
         <div className="cx-ai-pop">
           <div className="cx-ai-h">
             <b>AI 看这 {rows.length} 条</b>
-            <span className="faint num">{est ? `约 ${num(est.images)} 张图${est.estimated != null ? ` · 约 ${est.currency === "CNY" ? "¥" : "$"}${est.estimated.toFixed(1)}` : ""}` : "估算中"}</span>
+            <span className="faint num">{est ? `约 ${num(est.images)} 张图${est.estimated != null ? ` · 约 ${est.currency === "USD" ? "$" : "¥"}${est.estimated.toFixed(1)}` : ""}` : "估算中"}</span>
           </div>
           {over && <div className="cx-ai-warn">一次最多 40 条，先缩小范围</div>}
           <Input size="sm" placeholder="想重点看什么（可不填）" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -64,7 +65,7 @@ export const AnalyzeButton = ({ p, rows, onDone, label = "AI 分析", variant = 
               onClick={async () => {
                 setBusy(true)
                 try {
-                  await startAnalysis(p.line, rows, q.trim(), p.server)
+                  await startAnalysis(p.line, rows, q.trim())
                   qc.invalidateQueries({ queryKey: ["GET /api/cases/analyses"] })
                   toast("已开始分析")
                   close()
@@ -103,22 +104,19 @@ const AnalysisCard = ({ a, p }: { a: ViewAnalysis; p: Page }) => {
   const qc = useQueryClient()
   const byId = useMemo(() => new Map(a.rows.map((r) => [r.id, r])), [a.rows])
   const running = a.state === "queued" || a.state === "running"
-  const tally = { good: 0, ok: 0, bad: 0 }
-  a.perCase.forEach((x) => tally[x.rating]++)
-  const unrated = a.rows.filter((r) => !p.L.review(r)?.rating && a.perCase.some((x) => x.id === r.id))
+  const todo = a.rows.filter((r) => p.L.processed(r) !== "done" && (a.perCase.find((x) => x.id === r.id)?.tags.length ?? 0) > 0)
   const adoptAll = () => {
-    const groups = new Map<string, Row[]>()
-    unrated.forEach((r) => {
+    todo.forEach((r) => {
       const v = a.perCase.find((x) => x.id === r.id)!
-      const k = JSON.stringify([v.rating, v.tags])
-      groups.set(k, [...(groups.get(k) ?? []), r])
+      v.tags.forEach((id) => {
+        const t = p.shared.tagMap.get(id)
+        if (t) p.ops.addTags([r], t)
+      })
     })
-    groups.forEach((rs, k) => {
-      const [rating, tags] = JSON.parse(k)
-      p.rate(rs, { rating, addTags: tags })
-    })
-    toast(`已把 ${unrated.length} 条的 AI 初判写进评价`)
+    toast(`已把 ${todo.length} 条的 AI 判断写进标签`)
   }
+  const tagCount = new Map<string, number>()
+  a.perCase.forEach((x) => x.tags.forEach((t) => tagCount.set(t, (tagCount.get(t) ?? 0) + 1)))
   return (
     <div className="cx-ana-card">
       <div className="cx-ana-h">
@@ -127,19 +125,19 @@ const AnalysisCard = ({ a, p }: { a: ViewAnalysis; p: Page }) => {
         <span className="faint num">{a.items.length} 条</span>
         {a.question && <span className="cx-ana-q ellipsis">“{a.question}”</span>}
         <span className="spacer" />
-        {a.state === "done" && a.perCase.length > 0 && (
-          <span className="cx-ana-tally num">
-            {(["good", "ok", "bad"] as const).map((r) => (
-              <span key={r} className={cx("cx-chipr", r)}>
-                {ratingName[r]} {tally[r]}
+        {a.state === "done" &&
+          [...tagCount]
+            .sort((x, y) => y[1] - x[1])
+            .slice(0, 4)
+            .map(([id, n]) => (
+              <span key={id} className={cx("cx-tag", p.shared.tagMap.get(id)?.tone)}>
+                {p.shared.tagMap.get(id)?.label ?? id} {n}
               </span>
             ))}
-          </span>
-        )}
-        {a.state === "done" && unrated.length > 0 && (
-          <Tooltip content="只写进还没评价的记录，之后可以逐条改">
+        {a.state === "done" && todo.length > 0 && (
+          <Tooltip content="只写进还没处理的记录">
             <Button size="xs" variant="soft" onClick={adoptAll}>
-              采纳初判 · {unrated.length}
+              采纳 · {todo.length}
             </Button>
           </Tooltip>
         )}
@@ -169,13 +167,13 @@ const AnalysisCard = ({ a, p }: { a: ViewAnalysis; p: Page }) => {
                     <div className="cx-cl-th">
                       {rs.slice(0, 8).map((r, j) => (
                         <button key={r.id} onClick={() => p.open(rs, j, c.title.slice(0, 14))}>
-                          <Thumb media={r.last.outputs[0] ?? r.first.inputs[0]} w={40} ratio={1} radius={6} />
+                          <Pic m={r.last.outputs[0] ?? r.first.inputs[0]} />
                         </button>
                       ))}
                       {rs.length > 8 && <span className="faint num">+{rs.length - 8}</span>}
                     </div>
                     <span className="spacer" />
-                    {c.tags.map((t) => p.tagMap.get(t)).filter(Boolean).map((t) => (
+                    {c.tags.map((t) => p.shared.tagMap.get(t)).filter(Boolean).map((t) => (
                       <span key={t!.id} className={cx("cx-tag", t!.tone)}>
                         {t!.label}
                       </span>
@@ -213,40 +211,23 @@ const AnalysisCard = ({ a, p }: { a: ViewAnalysis; p: Page }) => {
 
 export const BatchesPanel = ({ p, initial }: { p: Page; initial: string | null }) => {
   const qc = useQueryClient()
-  const batches = useBatches(p.line, p.server)
+  const batches = useBatches(p.line, p.ready)
   const [strategy, setStrategy] = useState<CaseSampleStrategy>("problems")
   const [size, setSize] = useState("20")
   const [per, setPer] = useState("3")
   const [skip, setSkip] = useState(true)
   const [busy, setBusy] = useState(false)
   const [openId, setOpenId] = useState<string | null>(initial)
-  const pool = useLocalPool(p.line, p.week, p.unit, p.server === false)
-  const filtered = p.pool ?? pool
+  const rows = useBatchRows(openId)
   const opened = batches.find((b) => b.id === openId) ?? null
-  const rows = useBatchRows(opened, p.server)
-  const anyFilter = JSON.stringify(p.filters) !== JSON.stringify({ ...p.filters, q: "", outcome: [], result: [], intent: [], pattern: [], model: [], mode: [], enterprise: [], level: [], movement: [], steps: [], rating: [], tag: [], status: [], collection: null, slow: false, noted: false })
+  const anyFilter = JSON.stringify(p.filters) !== JSON.stringify(emptyFilters)
   const per2 = strategy === "per_enterprise" || strategy === "per_intent"
   const go = async () => {
     if (!p.week) return
     setBusy(true)
     try {
       const n = Number(size)
-      const { batch, rows } = await createBatch({
-        line: p.line,
-        week: p.week,
-        from: p.week,
-        to: weekEnd(p.week),
-        unit: p.unit,
-        filters: p.filters,
-        strategy,
-        size: n,
-        perGroup: Number(per),
-        name: `${weekShort(p.week)} · ${strategyName[strategy]} ${per2 ? `每组 ${per}` : `${n} 条`}`,
-        server: p.server,
-        pool: filtered,
-        L: p.L,
-        sample: (xs) => sampleLocal(xs, { strategy, size: n, perGroup: Number(per), seed: Math.floor(Math.random() * 1e9), skipRated: skip }, p.L),
-      })
+      const { batch, rows } = await createBatch({ line: p.line, from: p.week, to: weekEnd(p.week), unit: p.unit, filters: p.filters, legacy: p.legacy, strategy, size: n, perGroup: Number(per), name: `${weekShort(p.week)} · ${strategyName[strategy]} ${per2 ? `每组 ${per}` : `${n} 条`}`, skip })
       qc.invalidateQueries({ queryKey: ["GET /api/cases/batches"] })
       if (!rows.length) return toast("这个范围抽不出记录", { tone: "error" })
       setOpenId(batch.id)
@@ -257,30 +238,21 @@ export const BatchesPanel = ({ p, initial }: { p: Page; initial: string | null }
       setBusy(false)
     }
   }
-  const reviewed = (b: CaseBatch, rs: Row[] | null) => (rs ? rs.filter((r) => p.L.review(r)?.rating).length : b.reviewed)
   return (
     <div className="cx-batches">
       <div className="cx-sampler">
         <div className="cx-sampler-h">
-          <b>抽一批来评</b>
+          <b>抽一批来看</b>
           <span className="faint">{anyFilter ? "按「全部」页当前的筛选来抽" : `从 ${p.week ? weekShort(p.week) : ""} 这周的全部记录里抽`}</span>
         </div>
         <div className="cx-sampler-r">
-          <Segmented
-            value={strategy}
-            onChange={setStrategy}
-            options={(Object.keys(strategyName) as CaseSampleStrategy[]).map((s) => ({ value: s, label: strategyName[s] }))}
-          />
-          {per2 ? (
-            <Segmented size="sm" value={per} onChange={setPer} options={["1", "3", "5"].map((n) => ({ value: n, label: `每组 ${n}` }))} />
-          ) : (
-            <Segmented size="sm" value={size} onChange={setSize} options={["10", "20", "40"].map((n) => ({ value: n, label: `${n} 条` }))} />
-          )}
+          <Segmented value={strategy} onChange={setStrategy} options={(Object.keys(strategyName) as CaseSampleStrategy[]).map((s) => ({ value: s, label: strategyName[s] }))} />
+          {per2 ? <Segmented size="sm" value={per} onChange={setPer} options={["1", "3", "5"].map((n) => ({ value: n, label: `每组 ${n}` }))} /> : <Segmented size="sm" value={size} onChange={setSize} options={["10", "20", "40"].map((n) => ({ value: n, label: `${n} 条` }))} />}
           <Switch checked={skip} onChange={setSkip}>
-            跳过已评
+            跳过已处理
           </Switch>
           <span className="spacer" />
-          <Button variant="primary" icon="sparkle" loading={busy || (p.server === false && !filtered)} onClick={go}>
+          <Button variant="primary" icon="sparkle" loading={busy} onClick={go}>
             抽样并开始
           </Button>
         </div>
@@ -298,13 +270,13 @@ export const BatchesPanel = ({ p, initial }: { p: Page; initial: string | null }
       {batches.length ? (
         <div className="cx-blist">
           {batches.map((b) => {
-            const rs = b.id === openId ? rows : "rows" in b ? (b as CaseBatch & { rows: Row[] }).rows : null
-            const n = reviewed(b, rs)
+            const rs = b.id === openId ? rows : null
+            const n = rs ? rs.filter((r) => p.L.processed(r) === "done").length : b.processed ?? b.reviewed ?? 0
             return (
               <div key={b.id} className={cx("cx-b", b.id === openId && "on")} onClick={() => setOpenId(b.id === openId ? null : b.id)}>
                 <div className="cx-b-th">
                   {(rs ?? []).slice(0, 4).map((r) => (
-                    <Thumb key={caseKey(r)} media={r.last.outputs[0] ?? r.first.inputs[0]} w={34} ratio={1} radius={6} />
+                    <Pic key={caseKey(r)} m={r.last.outputs[0] ?? r.first.inputs[0]} peek={false} />
                   ))}
                 </div>
                 <div className="cx-b-m">
@@ -326,13 +298,13 @@ export const BatchesPanel = ({ p, initial }: { p: Page; initial: string | null }
                   onClick={(e) => {
                     e.stopPropagation()
                     if (!rs) return setOpenId(b.id)
-                    const first = rs.findIndex((r) => !p.L.review(r)?.rating)
+                    const first = rs.findIndex((r) => p.L.processed(r) !== "done")
                     p.open(rs, Math.max(0, first), b.name)
                   }}
                 >
-                  {n < b.items.length ? "继续评" : "再看"}
+                  {n < b.items.length ? "继续" : "再看"}
                 </Button>
-                <Menu width={140} trigger={({ toggle, ref }) => <IconButton ref={ref as never} size="sm" icon="more" label="更多" onClick={(e) => (e.stopPropagation(), toggle())} />} items={[{ key: "del", label: "删除这批", icon: "trash", danger: true, onSelect: () => void deleteBatch(b).then(() => qc.invalidateQueries({ queryKey: ["GET /api/cases/batches"] })) }]} />
+                <Menu width={140} trigger={({ toggle, ref }) => <IconButton ref={ref as never} size="sm" icon="more" label="更多" onClick={(e) => (e.stopPropagation(), toggle())} />} items={[{ key: "del", label: "删除这批", icon: "trash", danger: true, onSelect: () => void deleteBatch(b as CaseBatch).then(() => qc.invalidateQueries({ queryKey: ["GET /api/cases/batches"] })) }]} />
               </div>
             )
           })}
@@ -340,192 +312,294 @@ export const BatchesPanel = ({ p, initial }: { p: Page; initial: string | null }
       ) : (
         <Empty icon="sparkle" title="还没有抽过" compact />
       )}
-      {opened && (
+      {opened && rows && (
         <div className="cx-bdetail">
           <div className="cx-sum-h">{opened.name}</div>
-          {rows ? <CaseList rows={rows} grid={false} L={p.L} tagMap={p.tagMap} sel={new Map()} focus={-1} toggle={() => {}} onOpen={(i) => p.open(rows, i, opened.name)} rate={p.rate} /> : <ListSkeleton />}
+          <MiniGrid rows={rows} p={p} title={opened.name} />
         </div>
       )}
     </div>
   )
 }
 
-export const IssuesPanel = ({ p }: { p: Page }) => {
-  const { list, loading } = useIssues(p.line, p.week, p.server, p.tags)
-  const max = Math.max(1, ...(list ?? []).map((x) => x.cases))
-  const pool = p.pool
-  const remote = useQuery({ queryKey: ["GET /api/cases", "unrated-bad", p.line, p.week], enabled: p.server === true && !!p.week, queryFn: () => request<{ total: number }>("GET /api/cases", { query: { line: p.line, week: p.week, unit: p.unit, outcome: "bad", rating: "none", limit: 1 } }) })
-  const unattributed = pool ? pool.filter((r) => r.outcome === "bad" && !p.L.review(r)?.rating).length : remote.data?.total ?? null
-  const follow = async (ent: { id: string; name: string }, label: string) => {
+const MiniGrid = ({ rows, p, title }: { rows: Row[]; p: Page; title: string }) => (
+  <div className="rv-mini">
+    {rows.map((r, i) => {
+      const eff = p.L.review(r)?.effectiveTags ?? []
+      return (
+        <button key={caseKey(r)} className={cx("rv-mini-i", r.outcome, eff.length > 0 && "done")} onClick={() => p.open(rows, i, title)}>
+          <Pic m={r.last.outputs[0] ?? r.first.inputs[0]} peek={false} />
+          <span className="rv-mini-b">
+            <span className="ellipsis">{r.enterprise.name}</span>
+            {eff.length > 0 ? <span className="rv-mini-t ellipsis">{eff.map((id) => p.shared.tagMap.get(id)?.label).filter(Boolean).join("、")}</span> : <span className="faint">没看</span>}
+          </span>
+        </button>
+      )
+    })}
+  </div>
+)
+
+export const LibraryStatsView = ({ p, filters, setFilters }: { p: Page; filters: CaseFilters; setFilters: (f: CaseFilters) => void }) => {
+  const { stats, loading } = useLibraryStats(p.line, p.unit, filters, p.legacy, p.ready, p.tags.filter((t) => !t.id.startsWith("pending:")), p.L, p.week)
+  const [follow, setFollow] = useState<string | null>(null)
+  if (loading || !stats)
+    return (
+      <div className="lib">
+        <div className="lib-big">
+          {[0, 1, 2, 3].map((i) => (
+            <Skel key={i} h={78} r={12} />
+          ))}
+        </div>
+        <div className="lib-grid">
+          <Skel h={260} r={12} />
+          <Skel h={260} r={12} />
+        </div>
+      </div>
+    )
+  if (!stats.processed) return null
+  const pickTag = (id: string) => setFilters({ ...filters, tag: filters.tag.length === 1 && filters.tag[0] === id ? [] : [id] })
+  const pickEnt = (id: string) => setFilters({ ...filters, enterprise: filters.enterprise.length === 1 && filters.enterprise[0] === id ? [] : [id] })
+  const max = Math.max(1, ...stats.tags.map((t) => t.cases))
+  const top = stats.tags.slice(0, 10)
+  const cellMax = Math.max(1, ...stats.matrix.values())
+  const ents = new Set(stats.tags.flatMap((t) => t.top.map((e) => e.enterprise.id)))
+  const addFollow = async (ent: { id: string; name: string }, label: string) => {
     if (!p.week) return
+    setFollow(ent.id)
     try {
-      await call("POST /api/followups", { body: { line: p.line, week: p.week, enterprise: ent.id, goal: "help", reason: `记录里反复出现「${label}」` } })
+      await call("POST /api/followups", { body: { line: p.line, week: p.week, enterprise: ent.id, goal: "help", reason: `案例集里反复出现「${label}」` } })
       toast(`已把 ${ent.name} 加入跟进`, { action: { label: "去看", run: () => navigate({ page: "touches" }) } })
     } catch (e) {
       toast(errorText(e), { tone: "error" })
+    } finally {
+      setFollow(null)
     }
   }
-  const showTag = (id: string) => {
-    p.setFilters({ ...p.filters, tag: [id], rating: [], outcome: [] })
-    p.setTab("list")
-  }
   return (
-    <div className="cx-issues">
-      {unattributed != null && unattributed > 0 && (
-        <div className="cx-callout">
-          <Icon name="flag" size="sm" />
-          <span className="grow">
-            这周有 <b className="num">{num(unattributed)}</b> 条 bad 还没评
-          </span>
-          <Button size="sm" variant="soft" onClick={() => (p.setFilters({ ...p.filters, outcome: ["bad"], tag: [], rating: ["none"] }), p.setTab("list"))}>
-            去看
-          </Button>
-          <Button size="sm" variant="primary" onClick={() => p.setTab("batches")}>
-            抽一批来评
-          </Button>
+    <div className="lib">
+      <div className="lib-big">
+        <div className="lib-n">
+          <span className="k">已处理</span>
+          <b className="num">{num(stats.processed)}</b>
+          <span className="faint num">这周 +{num(stats.thisWeek)}</span>
         </div>
-      )}
-      {loading ? (
-        <div className="cx-issue-grid">
-          {[0, 1, 2].map((i) => (
-            <Skel key={i} h={200} r={12} />
-          ))}
+        <div className="lib-n">
+          <span className="k">问题最多</span>
+          <b className="ellipsis">{stats.tags.find((t) => t.tag.tone === "bad")?.tag.label ?? "—"}</b>
+          <span className="faint num">{stats.tags.find((t) => t.tag.tone === "bad")?.cases ?? 0} 条</span>
         </div>
-      ) : list && list.length ? (
-        <div className="cx-issue-grid">
-          {list.map((x) => (
-            <div key={x.tag.id} className={cx("cx-issue", x.tag.tone)}>
-              <div className="cx-issue-h">
-                <span className={cx("cx-tag", x.tag.tone)}>{x.tag.group || "标签"}</span>
-                <b>{x.tag.label}</b>
-                <span className="spacer" />
-                <Button size="xs" variant="ghost" iconRight="arrowRight" onClick={() => showTag(x.tag.id)}>
-                  全部
-                </Button>
-              </div>
-              <div className="cx-issue-n">
-                <b className="num">{x.cases}</b>
-                <span className="faint">条 · {x.enterprises} 家企业</span>
-                <span className="spacer" />
-                <div className="cx-issue-w">
-                  {x.weekly.map((w) => (
-                    <Tooltip key={w.week} content={`${weekShort(w.week)} · ${w.cases} 条`}>
-                      <i style={{ height: `${Math.max(8, (w.cases / Math.max(...x.weekly.map((y) => y.cases))) * 100)}%` }} />
-                    </Tooltip>
-                  ))}
-                </div>
-              </div>
-              <span className="cx-issue-bar">
-                <i style={{ width: `${(x.cases / max) * 100}%` }} />
-              </span>
-              <div className="cx-issue-s">
-                {x.samples.map((s) => {
-                  const rs = (x as typeof x & { rows?: Row[] }).rows
-                  const i = rs?.findIndex((r) => r.id === s.id && r.unit === s.unit) ?? -1
-                  return (
-                    <button key={s.id} onClick={() => (rs && i >= 0 ? p.open(rs, i, x.tag.label) : showTag(x.tag.id))}>
-                      {s.thumb ? <img src={s.thumb} alt="" loading="lazy" /> : <Icon name="image" />}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="cx-issue-e">
-                {x.topEnterprises.slice(0, 3).map((e) => (
-                  <div key={e.enterprise.id} className="cx-issue-er">
-                    <button className="n ellipsis" onClick={() => navigate({ ent: e.enterprise.id, tab: "profile" })}>
-                      {e.enterprise.name}
-                    </button>
-                    <span className="faint num">{e.cases}</span>
-                    <Tooltip content="加入跟进">
-                      <IconButton size="xs" icon="send" label="加入跟进" onClick={() => follow(e.enterprise, x.tag.label)} />
-                    </Tooltip>
-                  </div>
-                ))}
-              </div>
-              {(x.linked.followups > 0 || x.linked.opportunities > 0 || x.linked.templates > 0) && (
-                <div className="cx-issue-l faint num">
-                  {[x.linked.followups && `跟进 ${x.linked.followups}`, x.linked.opportunities && `模板机会 ${x.linked.opportunities}`, x.linked.templates && `模板 ${x.linked.templates}`].filter(Boolean).join(" · ")}
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="lib-n">
+          <span className="k">误判率</span>
+          <b className="num">{stats.falseAlarm.rate == null ? "—" : pct(stats.falseAlarm.rate, 1)}</b>
+          <span className="faint num">{stats.falseAlarm.cases} 条判 bad 其实没问题</span>
         </div>
-      ) : (
-        <Empty icon="flag" title="还没有问题标签" text="评价时给 bad 贴上标签，这里会按问题汇总" action={<Button size="sm" onClick={() => p.setTab("batches")}>抽一批来评</Button>} />
-      )}
-    </div>
-  )
-}
-
-export const CollectionsPanel = ({ p, collections, ops }: { p: Page; collections: CaseCollection[]; ops: ReturnType<typeof useCollectionOps> }) => {
-  const [openId, setOpenId] = useState<string | null>(null)
-  const [naming, setNaming] = useState<{ id: string | null; name: string } | null>(null)
-  const rows = useCollectionRows(openId, p.line, p.week, p.server)
-  const opened = collections.find((c) => c.id === openId) ?? null
-  useEffect(() => {
-    if (openId && !collections.some((c) => c.id === openId)) setOpenId(null)
-  }, [collections, openId])
-  return (
-    <div className="cx-cols">
-      <div className="cx-col-grid">
-        {collections.map((c) => (
-          <ColCard key={c.id} c={c} on={c.id === openId} p={p} onOpen={() => setOpenId(c.id === openId ? null : c.id)} onRename={() => setNaming({ id: c.id, name: c.name })} onDelete={() => void ops.remove(c.id)} />
-        ))}
-        <button className="cx-col new" onClick={() => setNaming({ id: null, name: "" })}>
-          <Icon name="plus" />
-          <span>新建收藏夹</span>
-        </button>
+        <div className="lib-n">
+          <span className="k">涉及企业</span>
+          <b className="num">{num(ents.size)}</b>
+          <span className="faint num">bad {stats.outcomes.bad} · 磨合 {stats.outcomes.grind}</span>
+        </div>
       </div>
-      {opened && (
-        <div className="cx-bdetail">
-          <div className="cx-sum-h">
-            {opened.name}
-            <span className="faint num"> · {opened.count} 条</span>
+      <div className="lib-grid">
+        <div className="lib-card">
+          <div className="lib-h">问题排行</div>
+          <div className="lib-rank">
+            {top.map((t) => (
+              <button key={t.tag.id} className={cx("lib-r", filters.tag.includes(t.tag.id) && "on")} onClick={() => pickTag(t.tag.id)}>
+                <span className={cx("dot", t.tag.tone)} />
+                <span className="n ellipsis">{t.tag.label}</span>
+                <span className="bar">
+                  <i className={t.tag.tone} style={{ width: `${(t.cases / max) * 100}%` }} />
+                </span>
+                <b className="num">{t.cases}</b>
+                <span className="faint num">{t.enterprises} 家</span>
+              </button>
+            ))}
           </div>
-          {rows ? rows.length ? <CaseList rows={rows} grid L={p.L} tagMap={p.tagMap} sel={new Map()} focus={-1} toggle={() => {}} onOpen={(i) => p.open(rows, i, opened.name)} rate={p.rate} /> : <Empty icon="book" title="还是空的" text="在查看器里点「收藏」，或在列表里选中后加入" compact /> : <ListSkeleton grid />}
+        </div>
+        <div className="lib-card">
+          <div className="lib-h">每周处理</div>
+          {stats.weeks.length > 1 ? (
+            <TrendChart kind="bar" height={150} points={stats.weeks.map((w) => ({ label: weekShort(w.week), value: w.processed, note: w.falseAlarm ? `其中其实没问题 ${w.falseAlarm}` : undefined }))} />
+          ) : (
+            <div className="lib-one num">
+              <b>{stats.weeks[0]?.processed ?? 0}</b>
+              <span className="faint">{stats.weeks[0] ? weekShort(stats.weeks[0].week) : ""} 这周</span>
+            </div>
+          )}
+          <div className="lib-h" style={{ marginTop: 14 }}>
+            问题集中的企业
+          </div>
+          <div className="lib-ents">
+            {stats.enterprises.slice(0, 5).map((e) => (
+              <div key={e.enterprise.id} className={cx("lib-e", filters.enterprise.includes(e.enterprise.id) && "on")}>
+                <button className="n ellipsis" onClick={() => pickEnt(e.enterprise.id)}>
+                  {e.enterprise.name}
+                </button>
+                <span className="t ellipsis">{e.tags.map((x) => p.shared.tagMap.get(x.tag)?.label).filter(Boolean).join("、")}</span>
+                <b className="num">{e.cases}</b>
+                <Tooltip content="加入跟进">
+                  <IconButton size="xs" icon="send" label="加入跟进" disabled={follow === e.enterprise.id} onClick={() => addFollow(e.enterprise, p.shared.tagMap.get(e.tags[0]?.tag ?? "")?.label ?? "问题")} />
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {stats.intents.length > 1 && top.length > 1 && (
+        <div className="lib-card">
+          <div className="lib-h">问题 × {p.line === "video" ? "模式" : "意图"}</div>
+          <div className="lib-mx" style={{ gridTemplateColumns: `160px repeat(${stats.intents.length}, minmax(56px, 1fr))` }}>
+            <span />
+            {stats.intents.map((k) => (
+              <span key={k} className="lib-mx-h ellipsis">
+                {k}
+              </span>
+            ))}
+            {top.slice(0, 8).map((t) => (
+              <MatrixRow key={t.tag.id} tag={t.tag} intents={stats.intents} matrix={stats.matrix} max={cellMax} on={(intent) => setFilters({ ...filters, tag: [t.tag.id], intent: [intent] })} />
+            ))}
+          </div>
         </div>
       )}
-      <NameModal
-        open={!!naming}
-        title={naming?.id ? "重命名" : "新建收藏夹"}
-        initial={naming?.name ?? ""}
-        onClose={() => setNaming(null)}
-        onSave={async (name) => {
-          if (naming?.id) await ops.rename(naming.id, name)
-          else await ops.create(name)
-          setNaming(null)
-        }}
-      />
     </div>
   )
 }
 
-const ColCard = ({ c, on, p, onOpen, onRename, onDelete }: { c: CaseCollection; on: boolean; p: Page; onOpen: () => void; onRename: () => void; onDelete: () => void }) => {
-  const rows = useCollectionRows(c.id, p.line, p.week, p.server)
-  return (
-    <div className={cx("cx-col", on && "on")} onClick={onOpen}>
-      <div className="cx-col-th">
-        {[0, 1, 2, 3].map((i) => {
-          const r = rows?.[i]
-          const t = r ? thumbOf(r) : null
-          return <span key={i}>{t && <img src={t} alt="" loading="lazy" />}</span>
-        })}
+const MatrixRow = ({ tag, intents, matrix, max, on }: { tag: CaseTag; intents: string[]; matrix: Map<string, number>; max: number; on: (intent: string) => void }) => (
+  <>
+    <span className="lib-mx-r ellipsis">{tag.label}</span>
+    {intents.map((k) => {
+      const v = matrix.get(`${tag.id}|${k}`) ?? 0
+      return (
+        <button key={k} className={cx("lib-mx-c", tag.tone, !v && "z")} style={{ "--a": v ? 0.12 + (v / max) * 0.78 : 0 } as React.CSSProperties} onClick={() => v && on(k)}>
+          {v || ""}
+        </button>
+      )
+    })}
+  </>
+)
+
+export const PoolPanel = ({ p }: { p: Page }) => {
+  const rows = p.pool.rows.filter((r) => r.unit === p.unit || true)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [busy, setBusy] = useState(false)
+  const picked = rows.filter((r) => sel.has(caseKey(r)))
+  const ents = new Set(picked.map((r) => r.enterprise.id))
+  const toggle = (r: Row) =>
+    setSel((s) => {
+      const n = new Set(s)
+      const k = caseKey(r)
+      n.has(k) ? n.delete(k) : n.add(k)
+      return n
+    })
+  const make = (kind: "official" | "custom") => makeTemplate({ line: p.line, rows: picked, kind, target: kind === "custom" ? picked[0]?.enterprise.id ?? null : null, remote: p.pool.remote, onStart: () => setBusy(true), onDone: () => (setBusy(false), setSel(new Set())) })
+  if (p.pool.loading)
+    return (
+      <div className="pool-grid">
+        {[0, 1, 2, 3].map((i) => (
+          <Skel key={i} h={380} r={14} />
+        ))}
       </div>
-      <div className="cx-col-f">
-        <div className="stack" style={{ gap: 2, minWidth: 0 }}>
-          <b className="ellipsis">{c.name}</b>
-          <span className="faint num">
-            {c.count} 条{rows && rows.length ? ` · ${outcomeName.bad} ${rows.filter((r) => r.outcome === "bad").length}` : ""}
-          </span>
-        </div>
+    )
+  if (!rows.length) return <Empty icon="template" title="还没有可做模板的记录" text="看记录时按 P，或点卡片上的「可做模板」" action={<Button size="sm" onClick={() => p.setTab("list")}>去看记录</Button>} />
+  const made = rows.filter((r) => r.pool?.templateId).length
+  return (
+    <div className="pool">
+      <div className="cx-bar">
+        <Checkbox checked={picked.length === rows.length} mixed={picked.length > 0 && picked.length < rows.length} onChange={(on) => setSel(on ? new Set(rows.map(caseKey)) : new Set())} />
+        <span className="faint num">
+          {rows.length} 条{made ? ` · 已生成 ${made}` : ""}
+          {picked.length ? ` · 已选 ${picked.length}` : ""}
+        </span>
         <span className="spacer" />
-        <Menu
-          width={140}
-          trigger={({ toggle, ref }) => <IconButton ref={ref as never} size="sm" icon="more" label="更多" onClick={(e) => (e.stopPropagation(), toggle())} />}
-          items={[
-            { key: "rename", label: "重命名", icon: "edit", onSelect: onRename },
-            { key: "del", label: "删除", icon: "trash", danger: true, onSelect: onDelete },
-          ]}
+        <Button size="sm" variant="ghost" icon="download" onClick={() => exportCases({ line: p.line, week: p.week, unit: p.unit, rows: picked.length ? picked : rows, filters: emptyFilters, legacy: p.legacy, scope: "pool", tags: p.tags })}>
+          导出
+        </Button>
+        {picked.length > 0 && (
+          <Button size="sm" variant="ghost" icon="x" onClick={() => (p.poolOps.toggle(picked, false), setSel(new Set()))}>
+            移出
+          </Button>
+        )}
+        <Popover
+          width={280}
+          placement="bottom-end"
+          trigger={({ toggle: t, ref }) => (
+            <Button ref={ref as never} size="sm" variant="primary" icon="sparkle" loading={busy} disabled={!picked.length} onClick={t}>
+              生成模板{picked.length ? ` · ${picked.length}` : ""}
+            </Button>
+          )}
+        >
+          {(close) => (
+            <div className="pool-make">
+              <button onClick={() => (close(), make("official"))}>
+                <b>官方模板</b>
+                <span className="faint">所有客户都能用</span>
+              </button>
+              <button disabled={ents.size !== 1} onClick={() => (close(), make("custom"))}>
+                <b>定制模板</b>
+                <span className="faint">{ents.size === 1 ? `给 ${picked[0].enterprise.name}` : "选同一家企业的记录才能定制"}</span>
+              </button>
+            </div>
+          )}
+        </Popover>
+      </div>
+      <div className="pool-grid">
+        {rows.map((r, i) => (
+          <PoolCard key={caseKey(r)} r={r} p={p} on={sel.has(caseKey(r))} onToggle={() => toggle(r)} onOpen={() => p.open(rows, i, "可做模板")} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const PoolCard = ({ r, p, on, onToggle, onOpen }: { r: Row; p: Page; on: boolean; onToggle: () => void; onOpen: () => void }) => {
+  const [note, setNote] = useState(r.pool?.note ?? "")
+  const eff = p.L.review(r)?.effectiveTags ?? []
+  return (
+    <div className={cx("pool-card", on && "on")} onClick={onToggle}>
+      <div className="pool-m" onClick={(e) => (e.stopPropagation(), onOpen())}>
+        <Pic m={r.last.outputs[0] ?? r.first.inputs[0]} peek={false} />
+        <span className="pool-ins">
+          {r.first.inputs.slice(0, 3).map((m, i) => (
+            <Pic key={i} m={m} />
+          ))}
+        </span>
+        <span className="pool-ck" onClick={(e) => (e.stopPropagation(), onToggle())}>
+          <Checkbox checked={on} onChange={onToggle} />
+        </span>
+        {r.pool?.templateId && (
+          <button className="pool-made" onClick={(e) => (e.stopPropagation(), navigate({ page: "templates", tpl: r.pool!.templateId, pane: "drafts" }))}>
+            <Icon name="check" size="xs" />
+            已生成模板
+          </button>
+        )}
+      </div>
+      <div className="pool-b">
+        <div className="pool-e ellipsis">
+          {r.enterprise.name}
+          {r.intent && <span className="faint"> · {r.intent}</span>}
+        </div>
+        <div className="pool-p">{r.last.prompt || r.first.prompt || "—"}</div>
+        {eff.length > 0 && (
+          <div className="pool-t">
+            {eff.slice(0, 3).map((id) => {
+              const t = p.shared.tagMap.get(id)
+              return t ? (
+                <span key={id} className={cx("cx-tag", t.tone)}>
+                  {t.label}
+                </span>
+              ) : null
+            })}
+          </div>
+        )}
+        <input
+          className="pool-note"
+          value={note}
+          placeholder="为什么适合做模板"
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+          onBlur={() => note !== (r.pool?.note ?? "") && p.poolOps.note(r, note.trim() || null)}
         />
       </div>
     </div>

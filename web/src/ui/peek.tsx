@@ -2,22 +2,34 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import type { Media } from "@spec/contract"
 import { Portal } from "./overlays"
 
+const small = (m: Media) => (m.kind === "video" ? m.poster ?? m.thumb : m.thumb)
 const large = (m: Media) => {
-  const src = m.kind === "video" ? m.poster ?? m.thumb : m.thumb
+  const src = small(m)
   return src.includes("/api/media/thumb") ? src.replace(/([?&]w=)\d+/, "$11200") : m.kind === "image" ? m.url : src
 }
 
-let open: (() => void) | null = null
+const warmed = new Set<string>()
+export const warm = (m: Media | null | undefined) => {
+  if (!m) return
+  const u = large(m)
+  if (warmed.has(u)) return
+  warmed.add(u)
+  const img = new Image()
+  img.decoding = "async"
+  img.src = u
+}
 
-export const Peek = ({ media, label, children }: { media: Media | null | undefined; label?: ReactNode; children: ReactNode }) => {
+let closeOpen: (() => void) | null = null
+
+export const Peek = ({ media, label, children, delay = 160 }: { media: Media | null | undefined; label?: ReactNode; children: ReactNode; delay?: number }) => {
   const ref = useRef<HTMLSpanElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [pos, setPos] = useState<{ left: number; top: number; side: "r" | "l" } | null>(null)
-  const [ready, setReady] = useState(false)
+  const [pos, setPos] = useState<{ left: number; top: number; w: number; h: number } | null>(null)
+  const [sharp, setSharp] = useState(false)
   const close = () => {
     if (timer.current) clearTimeout(timer.current)
     setPos(null)
-    setReady(false)
+    setSharp(false)
   }
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current)
@@ -33,21 +45,27 @@ export const Peek = ({ media, label, children }: { media: Media | null | undefin
     }
   }, [pos])
   if (!media) return <>{children}</>
-  const W = Math.min(520, window.innerWidth * 0.4)
   return (
     <span
       ref={ref}
       className="peek-a"
       onMouseEnter={() => {
+        warm(media)
         timer.current = setTimeout(() => {
           const r = ref.current?.getBoundingClientRect()
           if (!r) return
-          open?.()
-          open = close
-          const right = r.right + 14 + W < window.innerWidth - 12
-          const top = Math.max(12, Math.min(r.top + r.height / 2 - W * 0.6, window.innerHeight - W * 1.25 - 12))
-          setPos({ left: right ? r.right + 14 : r.left - 14 - W, top, side: right ? "r" : "l" })
-        }, 220)
+          closeOpen?.()
+          closeOpen = close
+          const img = ref.current?.querySelector("img")
+          const ar = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.75
+          let h = Math.min(window.innerHeight - 40, 820)
+          let w = Math.round(h * ar)
+          const maxW = Math.min(900, window.innerWidth * 0.55)
+          if (w > maxW) (w = Math.round(maxW), (h = Math.round(maxW / ar)))
+          const right = r.right + 16 + w < window.innerWidth - 16
+          const top = Math.max(20, Math.min(r.top + r.height / 2 - h / 2, window.innerHeight - h - 20))
+          setPos({ left: right ? r.right + 16 : Math.max(16, r.left - 16 - w), top, w, h })
+        }, delay)
       }}
       onMouseLeave={close}
       onMouseDown={close}
@@ -55,9 +73,9 @@ export const Peek = ({ media, label, children }: { media: Media | null | undefin
       {children}
       {pos && (
         <Portal>
-          <div className={`peek ${ready ? "in" : ""}`} style={{ left: pos.left, top: pos.top, width: W }}>
-            <img src={large(media)} alt="" onLoad={() => setReady(true)} style={{ maxHeight: W * 1.25 }} />
-            {!ready && <span className="peek-load" />}
+          <div className="peek" style={{ left: pos.left, top: pos.top, width: pos.w, height: pos.h }}>
+            <img className="lo" src={small(media)} alt="" />
+            <img className={sharp ? "hi on" : "hi"} src={large(media)} alt="" onLoad={() => setSharp(true)} />
             {label && <span className="peek-l">{label}</span>}
           </div>
         </Portal>
