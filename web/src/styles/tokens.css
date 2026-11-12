@@ -1,0 +1,251 @@
+:root {
+  --bg: #f6f5f2;
+  --bg-sunk: #efede8;
+  --surface: #ffffff;
+  --surface-2: #fbfaf8;
+  --surface-hover: #f7f6f3;
+  --ink: #18181b;
+  --ink-2: #3f3f46;
+  --ink-3: #71717a;
+  --ink-4: #a1a1aa;
+  --ink-5: #d4d4d8;
+  --line: #e8e6e1;
+  --line-2: #efede9;
+  --line-strong: #d9d6cf;
+  --accent: #5f57e6;
+  --accent-hover: #5149d8;
+  --accent-press: #463fc4;
+  --accent-ink: #4038b8;
+  --accent-weak: #efeefe;
+  --accent-weak-2: #e3e1fc;
+  --accent-ring: rgba(95, 87, 230, 0.22);
+  --accent-1: #3a33a8;
+  --accent-2: #5f57e6;
+  --accent-3: #a6a1f1;
+  --accent-4: #d6d4f8;
+  --up: #12805c;
+  --up-weak: #e6f4ee;
+  --down: #c8382f;
+  --down-weak: #fcecea;
+  --warn: #b7791f;
+  --warn-weak: #fbf3e4;
+  --scrim: rgba(24, 24, 27, 0.32);
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --sh-xs: 0 1px 0 rgba(24, 24, 27, 0.04);
+  --sh-sm: 0 1px 2px rgba(24, 24, 27, 0.06), 0 0 0 1px rgba(24, 24, 27, 0.04);
+  --sh-md: 0 4px 12px -2px rgba(24, 24, 27, 0.08), 0 2px 4px -2px rgba(24, 24, 27, 0.05), 0 0 0 1px rgba(24, 24, 27, 0.05);
+  --sh-lg: 0 16px 40px -8px rgba(24, 24, 27, 0.16), 0 4px 10px -4px rgba(24, 24, 27, 0.08), 0 0 0 1px rgba(24, 24, 27, 0.05);
+  --sh-xl: 0 32px 72px -12px rgba(24, 24, 27, 0.24), 0 0 0 1px rgba(24, 24, 27, 0.06);
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 120ms;
+  --t: 180ms;
+  --t-slow: 260ms;
+  --sidebar: 236px;
+  --topbar: 60px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.55 var(--font);
+  font-feature-settings: "cv11", "ss01", "tnum";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+::selection {
+  background: var(--accent-weak-2);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(24, 24, 27, 0.12);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(24, 24, 27, 0.22);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.faint {
+  color: var(--ink-4);
+}
+
+.up {
+  color: var(--up);
+}
+
+.down {
+  color: var(--down);
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon.sm {
+  width: 15px;
+  height: 15px;
+}
+
+.icon.xs {
+  width: 13px;
+  height: 13px;
+}
+
+.icon.lg {
+  width: 20px;
+  height: 20px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes pop-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

@@ -1,0 +1,29 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+	log {
+		output file {$FD_DESK_DATA_DIR}/service/logs/lan.json {
+			roll_size 2MiB
+			roll_keep 1
+			roll_keep_for 72h
+		}
+		format filter {
+			wrap json
+			fields {
+				request delete
+			}
+		}
+		level WARN
+	}
+}
+
+:8767 {
+	reverse_proxy 127.0.0.1:8765 {
+		lb_try_duration 10s
+	}
+	handle_errors 502 503 504 {
+		header Content-Type application/json
+		respond `{"code":"backend_unavailable","message":"后端暂时无法连接，请稍后重试"}` {err.status_code}
+	}
+}

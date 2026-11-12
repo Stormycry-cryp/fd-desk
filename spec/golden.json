@@ -1,0 +1,486 @@
+{
+  "rows": 14257,
+  "enterprises": 177,
+  "weeks": {
+    "2026-10-26": {
+      "inspiration": {
+        "covered_weekdays": [
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": 4007,
+        "outputs": 4927,
+        "points": 14162,
+        "enterprises": 108,
+        "users": 158,
+        "download_rate": 0.5396,
+        "failed": 10,
+        "failed_by_status": 10,
+        "status": {
+          "success": 3913,
+          "deleted": 80,
+          "failed": 10,
+          "unknown": 4
+        },
+        "levels": null,
+        "stable_enterprises": null,
+        "top1_task_share": 0.1131,
+        "top10_task_share": 0.5508,
+        "top1_point_share": 0.1539,
+        "modes": {
+          "灵感成款-快速": 3826,
+          "灵感成款-Agent": 181
+        },
+        "transitions": {
+          "new": 1277,
+          "batch": 1007,
+          "adapt": 486,
+          "rework": 424,
+          "tweak": 328,
+          "retry": 290,
+          "none": 14
+        },
+        "batch_share": 0.2632,
+        "stuck_share": 0.1615,
+        "batch_download_rate": 0.6435,
+        "stuck_download_rate": 0.3463,
+        "intents": {
+          "Agent": {
+            "tasks": 181,
+            "download_rate": 0.5083
+          },
+          "修图去除": {
+            "tasks": 66,
+            "download_rate": 0.6364
+          },
+          "其他": {
+            "tasks": 372,
+            "download_rate": 0.5134
+          },
+          "印花面料": {
+            "tasks": 786,
+            "download_rate": 0.6234
+          },
+          "姿势角度": {
+            "tasks": 115,
+            "download_rate": 0.7304
+          },
+          "平铺白底": {
+            "tasks": 69,
+            "download_rate": 0.5652
+          },
+          "换模特换脸": {
+            "tasks": 136,
+            "download_rate": 0.6029
+          },
+          "换背景": {
+            "tasks": 223,
+            "download_rate": 0.5919
+          },
+          "换色": {
+            "tasks": 1128,
+            "download_rate": 0.4539
+          },
+          "换装上身": {
+            "tasks": 735,
+            "download_rate": 0.5837
+          },
+          "改款设计": {
+            "tasks": 183,
+            "download_rate": 0.3115
+          },
+          "详情排版": {
+            "tasks": 13,
+            "download_rate": 0.9231
+          }
+        }
+      },
+      "video": {
+        "covered_weekdays": [
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": 292,
+        "outputs": 278,
+        "points": 16742,
+        "enterprises": 30,
+        "users": 32,
+        "download_rate": 0.7363,
+        "failed": 14,
+        "failed_by_status": 12,
+        "status": {
+          "success": 272,
+          "failed": 12,
+          "deleted": 8
+        },
+        "levels": null,
+        "stable_enterprises": null,
+        "top1_task_share": 0.1747,
+        "top10_task_share": 0.7534,
+        "top1_point_share": 0.2528,
+        "downloaded_tasks": 215,
+        "points_downloaded": 12888,
+        "points_not_downloaded": 3854,
+        "points_per_downloaded": 77.9,
+        "modes": {
+          "全能替换": {
+            "tasks": 4,
+            "points": 224,
+            "download_rate": 0.75,
+            "failed": 0
+          },
+          "动作跟随": {
+            "tasks": 4,
+            "points": 310,
+            "download_rate": 0.25,
+            "failed": 0
+          },
+          "图生视频": {
+            "tasks": 42,
+            "points": 1028,
+            "download_rate": 0.6667,
+            "failed": 3
+          },
+          "多图参考": {
+            "tasks": 162,
+            "points": 7606,
+            "download_rate": 0.8765,
+            "failed": 4
+          },
+          "故事板视频": {
+            "tasks": 1,
+            "points": 13,
+            "download_rate": 0.0,
+            "failed": 0
+          },
+          "自由创作": {
+            "tasks": 70,
+            "points": 7400,
+            "download_rate": 0.5429,
+            "failed": 7
+          },
+          "首尾帧": {
+            "tasks": 9,
+            "points": 161,
+            "download_rate": 0.3333,
+            "failed": 0
+          }
+        },
+        "failures": {
+          "moderation": 7,
+          "timeout": 3,
+          "upstream": 2,
+          "material": 2
+        },
+        "failure_enterprises": {
+          "material": 1,
+          "moderation": 3,
+          "timeout": 1,
+          "upstream": 1
+        },
+        "material_failures_with_generic_message": 2
+      }
+    },
+    "2026-11-02": {
+      "inspiration": {
+        "covered_weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": 9077,
+        "outputs": 11363,
+        "points": 33586,
+        "enterprises": 130,
+        "users": 208,
+        "download_rate": 0.5505,
+        "failed": 6,
+        "failed_by_status": 6,
+        "status": {
+          "success": 8968,
+          "deleted": 99,
+          "failed": 6,
+          "unknown": 4
+        },
+        "levels": {
+          "light": 39,
+          "trial": 38,
+          "heavy": 26,
+          "medium": 20,
+          "burst": 7
+        },
+        "stable_enterprises": 46,
+        "top1_task_share": 0.257,
+        "top10_task_share": 0.543,
+        "top1_point_share": 0.1809,
+        "modes": {
+          "灵感成款-快速": 8453,
+          "灵感成款-Agent": 624
+        },
+        "transitions": {
+          "batch": 2933,
+          "new": 2428,
+          "adapt": 950,
+          "rework": 791,
+          "tweak": 705,
+          "retry": 635,
+          "none": 11
+        },
+        "batch_share": 0.347,
+        "stuck_share": 0.1585,
+        "batch_download_rate": 0.7576,
+        "stuck_download_rate": 0.3799,
+        "intents": {
+          "Agent": {
+            "tasks": 624,
+            "download_rate": 0.4567
+          },
+          "修图去除": {
+            "tasks": 128,
+            "download_rate": 0.4609
+          },
+          "其他": {
+            "tasks": 711,
+            "download_rate": 0.4444
+          },
+          "印花面料": {
+            "tasks": 1193,
+            "download_rate": 0.4023
+          },
+          "姿势角度": {
+            "tasks": 323,
+            "download_rate": 0.6285
+          },
+          "平铺白底": {
+            "tasks": 92,
+            "download_rate": 0.5109
+          },
+          "换模特换脸": {
+            "tasks": 127,
+            "download_rate": 0.685
+          },
+          "换背景": {
+            "tasks": 372,
+            "download_rate": 0.5269
+          },
+          "换色": {
+            "tasks": 3535,
+            "download_rate": 0.6484
+          },
+          "换装上身": {
+            "tasks": 1395,
+            "download_rate": 0.5591
+          },
+          "改款设计": {
+            "tasks": 552,
+            "download_rate": 0.4312
+          },
+          "详情排版": {
+            "tasks": 25,
+            "download_rate": 0.56
+          }
+        }
+      },
+      "video": {
+        "covered_weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": 881,
+        "outputs": 812,
+        "points": 60016,
+        "enterprises": 43,
+        "users": 48,
+        "download_rate": 0.6095,
+        "failed": 68,
+        "failed_by_status": 61,
+        "status": {
+          "success": 805,
+          "failed": 61,
+          "deleted": 15
+        },
+        "levels": {
+          "trial": 16,
+          "medium": 11,
+          "heavy": 8,
+          "burst": 6,
+          "light": 2
+        },
+        "stable_enterprises": 19,
+        "top1_task_share": 0.2951,
+        "top10_task_share": 0.7843,
+        "top1_point_share": 0.6226,
+        "downloaded_tasks": 537,
+        "points_downloaded": 28155,
+        "points_not_downloaded": 31861,
+        "points_per_downloaded": 111.8,
+        "modes": {
+          "全能替换": {
+            "tasks": 26,
+            "points": 1232,
+            "download_rate": 0.1154,
+            "failed": 6
+          },
+          "动作跟随": {
+            "tasks": 19,
+            "points": 782,
+            "download_rate": 0.2632,
+            "failed": 0
+          },
+          "图生视频": {
+            "tasks": 162,
+            "points": 3628,
+            "download_rate": 0.8148,
+            "failed": 3
+          },
+          "多图参考": {
+            "tasks": 305,
+            "points": 9419,
+            "download_rate": 0.8,
+            "failed": 16
+          },
+          "故事板视频": {
+            "tasks": 1,
+            "points": 60,
+            "download_rate": 1.0,
+            "failed": 0
+          },
+          "自由创作": {
+            "tasks": 343,
+            "points": 44589,
+            "download_rate": 0.3965,
+            "failed": 41
+          },
+          "首尾帧": {
+            "tasks": 25,
+            "points": 306,
+            "download_rate": 0.64,
+            "failed": 2
+          }
+        },
+        "failures": {
+          "upstream": 29,
+          "moderation": 15,
+          "timeout": 12,
+          "material": 12
+        },
+        "failure_enterprises": {
+          "material": 2,
+          "moderation": 3,
+          "timeout": 6,
+          "upstream": 3
+        },
+        "material_failures_with_generic_message": 12
+      }
+    }
+  },
+  "comparisons": {
+    "2026-10-26_2026-11-02": {
+      "inspiration": {
+        "comparable_weekdays": [
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": [
+          4007,
+          5041
+        ],
+        "enterprises": [
+          108,
+          106
+        ],
+        "points": [
+          14162,
+          18041
+        ],
+        "tasks_excluding_top1": [
+          3647,
+          3433
+        ],
+        "points_excluding_top1": [
+          13104,
+          14053
+        ],
+        "enterprises_excluding_top1": [
+          107,
+          105
+        ],
+        "rising": 71,
+        "falling": 69,
+        "large_accounts": 19,
+        "large_accounts_halved": 6
+      },
+      "video": {
+        "comparable_weekdays": [
+          3,
+          4,
+          5,
+          6
+        ],
+        "tasks": [
+          292,
+          413
+        ],
+        "enterprises": [
+          30,
+          24
+        ],
+        "points": [
+          16742,
+          24932
+        ],
+        "tasks_excluding_top1": [
+          276,
+          304
+        ],
+        "points_excluding_top1": [
+          15192,
+          9951
+        ],
+        "enterprises_excluding_top1": [
+          29,
+          23
+        ],
+        "rising": 17,
+        "falling": 20,
+        "large_accounts": 9,
+        "large_accounts_halved": 4
+      }
+    }
+  },
+  "official_template_match": {
+    "2026-10-26": {
+      "quick_tasks": 3826,
+      "matched": 287,
+      "matched_enterprises": 27,
+      "matched_download_rate": 0.561,
+      "top3_share_of_matched": 0.892,
+      "templates_in_catalog": 50,
+      "templates_used": 10
+    },
+    "2026-11-02": {
+      "quick_tasks": 8453,
+      "matched": 854,
+      "matched_enterprises": 33,
+      "matched_download_rate": 0.5913,
+      "top3_share_of_matched": 0.9145,
+      "templates_in_catalog": 50,
+      "templates_used": 16
+    }
+  }
+}
