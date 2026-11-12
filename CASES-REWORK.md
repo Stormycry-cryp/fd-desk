@@ -2,6 +2,8 @@
 
 记录页放在导航「客户」下面，跨企业查看生成记录。目的是快速发现问题客户、看清客户输入和结果、评价、归因，然后批量导出给运营和领导。企业抽屉里的「记录」标签页改成一个入口，跳到记录页并按该企业筛选。前端由 Opus 负责，本文只列后端和契约。
 
+> 11/12 第二轮改版：评价、状态、收藏夹、问题看板都已推翻，以文末「第二轮：评审改版」为准。下面的 §三 只保留标签部分有效；§四 和 §七 作废；§五、§九、§十 中与评价、状态、收藏夹相关的内容同样作废。
+
 ## 已确认的产品口径
 
 - **默认范围**：当前所选周的全部企业、全部记录。时间可以改成自定义起止日期。
@@ -425,3 +427,204 @@ export interface CaseIssue {
 1. 费用预估返回具体金额和币种，使用当前模型单价与渠道倍率；完成后保存本次 CLI 用量计算出的金额。
 2. 三个视频预置标签的 `lines` 固定为 `["video"]`，灵感成款标签接口排除这三个标签；服务启动时修复已有的适用范围，保留标签的名称、排序和归档状态。
 3. 批次 `filters` 只保存查询范围和筛选条件，排除 `sort`、`offset`、`limit`；服务启动时同步清理已有批次的这三个字段，保留抽样结果和评价。
+
+
+---
+
+# 第二轮：评审改版（11/12）
+
+用户的实际用法是：快速看清一条记录，打上标签说明原因，必要时写一句评论。bad case 本来就不可能评「好」，好 / 一般 / 差三档没有意义。本轮的改动：
+
+- 去掉评价和状态。打过标签就算「已处理」。
+- 已处理的记录自动进入「案例集」，案例集提供统计图表。
+- 收藏夹删掉，换成「可做模板」池，池子里的记录可以直接拿去生成模板。
+
+标签、筛选、导出、抽样在各个视图之间通用。
+
+## 口径
+
+- **自有标签和生效标签**：
+  - 自有标签：直接打在这一行上的标签，单条记录或整条链都算。
+  - 生效标签：
+    - 步骤：自有标签非空时用自有标签，否则继承所在链的自有标签。沿用第一轮的继承规则。
+    - 链：链自身的标签，加上所有步骤的自有标签，取并集。
+- **已处理**：生效标签非空即为已处理，不需要单独存状态。把标签全部去掉后，自动回到未处理。
+- **只评论**：没有生效标签，但这一行或它的任一步骤上有批注。
+- **处理时间 `processedAt`**：这一行从未处理变成已处理的时间。标签全部去掉后清空；之后再打上标签，重新计时。
+- **误判**：新增预置标签「其实没问题」。打了它也算已处理。案例集统计会单独算一个误判率：结局为 bad、且生效标签含「其实没问题」的条数，除以已处理的 bad 条数。
+- **标签「可做模板」移出标签体系**，改为下面的「可做模板」池。迁移时，已经打了这个标签的 case 要全部转进池子，然后把这个标签归档。
+- 评价和状态字段不再读取，也不再写入。数据库列可以保留，不需要迁移数据。打开详情不写任何东西。
+
+## 一、契约改动
+
+```ts
+// 删除：CaseRating、CaseStatus、CaseCollection 及其所有接口和字段
+
+export interface CaseReview {
+  tags: Id[]            // 这一行的自有标签
+  effectiveTags: Id[]   // 生效标签，口径见上
+  inherited: boolean    // 步骤：没有自有标签、生效标签继承自链时为 true
+  processedAt: Timestamp | null
+  updatedAt: Timestamp
+}
+
+export type CaseProcessed = "todo" | "done" | "noted"   // 未处理 / 已处理 / 只评论
+
+export interface CaseTag {
+  id: Id; group: string; label: string; lines: Line[]; tone: "bad" | "good" | "neutral"
+  order: number; archived: boolean
+  uses: number          // 新增，口径见 §三
+}
+
+export interface CaseStep {
+  // 原有字段不变，新增：
+  annotationCount: number
+  lastAnnotation: { text: string; at: Timestamp } | null
+}
+
+export interface CaseRow {
+  // 删除 collections；原有其他字段不变，新增：
+  processed: CaseProcessed
+  pool: CasePoolEntry | null   // 不在「可做模板」池里时为 null
+}
+
+export interface CaseSummary {
+  total: number; outcomes: Record<CaseOutcome, number>
+  byIntent: { key: string; total: number; bad: number; grind: number }[]
+  byEnterprise: { enterprise: EnterpriseRef; total: number; bad: number; grind: number }[]
+  processed: number; noted: number   // 替换 rated、ratings
+}
+
+export interface CaseQuery {
+  // 删除 rating、status、collection；新增：
+  processed?: string              // 逗号分隔的 CaseProcessed
+  scope?: "week" | "library"      // 默认 week；library 见 §二
+  pool?: "any" | "none"
+  // 其余不变
+}
+// CasePage.facets：删除 ratings、statuses，新增 processed: RecordFacet[]
+
+export interface CasePoolEntry {
+  id: Id; unit: CaseUnit; line: Line
+  note: string | null
+  templateId: Id | null           // 已经用它生成过模板时，填最近一次的模板 id
+  addedAt: Timestamp
+}
+```
+
+- `CaseRow.annotationCount` 和 `lastAnnotation`：按链看时，要把链上各步骤的批注也算进去。批注沿用 `/api/annotations`：链的锚点是 `case:<chainId>`，单条的锚点是 `record:<rowKey>`，接口本身不用改。
+- `PUT /api/cases/reviews`：请求体改为 `{ items: CaseRef[]; addTags?: Id[]; removeTags?: Id[]; setTags?: Id[] }`。
+  - `setTags` 表示整体替换这一行的自有标签。
+  - 返回值不变。
+  - 如果收到旧的 `rating` 和 `status` 字段，直接忽略，不报错。
+- `DELETE /api/cases/reviews`：保留，作用是清空自有标签。
+- **预置标签改动**：
+  - 新增 `{ id: "false_alarm", group: "判断", label: "其实没问题", lines: [], tone: "good" }`，排在最后。
+  - 「值得关注 / 可做模板」按上面的迁移规则转进池子后归档。
+  - 视频组三个标签的 `lines` 改成 `["video"]`。
+- `JobKind`、`ExportKind`、`PageKey` 都不变。
+
+## 二、列表 `GET /api/cases`
+
+- **`processed=todo`**：用于前端的「隐藏已处理」开关。
+- **`processed=noted`**：筛出「只评论」的记录。
+- **`scope=library`（案例集）**：
+  - 忽略 `week`、`from`、`to`，跨所有已导入的周，只返回已处理的记录。
+  - 不传 `sort` 时，默认按 `processedAt` 倒序。
+  - 其他筛选参数照常生效，包括 `tag`、`intent`、`enterprise`、`outcome`、`level`、`model`、`q`。
+  - `summary` 和 `facets` 都按案例集的范围计算。
+- **`pool=any`**：只返回在「可做模板」池里的记录。
+- `facets.tags` 的计数按生效标签算：按链看时，一条链只算一次；按单条看时，继承来的标签也计入。
+- **性能**：`scope=library` 加 `limit=50` 时，响应在 300ms 以内。
+
+## 三、标签排序 `GET /api/cases/tags`
+
+- `uses`：该业务线最近 8 周内，用了这个标签的 case 数量，按生效标签算。
+- 返回顺序：先按 `uses` 降序，`uses` 相同时按 `order` 升序。
+- 前端会把前 9 个标签绑到数字键 1–9。所以新装、全部为 0 的时候，也要按 `order` 给出合理的顺序：没保住 → 没听懂 → 质量差 → 不是模型的问题 → 判断。
+
+## 四、案例集统计 `GET /api/cases/library/stats`
+
+- **参数**：`line`、`unit`，加上与列表相同的筛选参数（`tag`、`intent`、`enterprise`、`outcome`、`level`、`model`、`q`），以及 `weeks`（默认 12，指趋势图覆盖的周数）。
+- 返回：
+
+```ts
+export interface CaseLibraryStats {
+  processed: number
+  outcomes: Record<CaseOutcome, number>          // 已处理记录的结局分布
+  falseAlarm: { cases: number; rate: number | null }
+  tags: CaseIssue[]                               // 沿用第一轮的 CaseIssue 结构，按 cases 降序，含 weekly、samples、topEnterprises、linked
+  weekly: { week: WeekKey; processed: number; falseAlarm: number; byTag: Record<Id, number> }[]
+  matrix: { tag: Id; intent: string; cases: number }[]   // 标签 × 意图
+  enterprises: { enterprise: EnterpriseRef; cases: number; tags: { tag: Id; cases: number }[] }[]   // 前 10 家
+}
+```
+
+- 一个 case 有多个标签时，每个标签各计一次；`processed` 字段不重复计数。
+- `weekly` 按 case 所在的周归属，不按处理时间。
+- `GET /api/cases/issues` 不再被前端使用，可以删掉，也可以保留。
+- **性能**：在 500ms 以内。
+
+## 五、「可做模板」池
+
+- `GET /api/cases/pool?line=&unit=`：返回 `{ entries: CasePoolEntry[]; rows: CaseRow[] }`，按 `addedAt` 倒序，不分页。列表接口的 `pool=any` 也能拿到同样的数据。
+- `PUT /api/cases/pool`：请求体 `{ line; add?: CaseRef[]; remove?: CaseRef[]; note?: { ref: CaseRef; text: string | null } }`，返回 `{ updated: number }`。
+- **生成模板**：前端调用现有的 `POST /api/templates`，带上 `caseIds` 和 `write: true`。后端需要：
+  - `caseIds` 改成接受 `CaseRef[]`，即 `{ id; unit }[]`，旧的字符串数组也继续兼容。
+  - 以这些 case 的第一步输入、最后一步提示词和结果作为撰写参考。
+  - 写入 `Template.sourceCases`。
+  - 回填这些池条目的 `templateId`。
+- 删除池条目，不影响已经生成的模板。删除模板时，把引用它的池条目的 `templateId` 清空。
+- 存储方式：新建一张表 `case_pool(id, unit, line, enterprise_id, note, template_id, added_at)`。
+
+## 六、删除收藏夹
+
+收藏夹没有真实数据，直接删掉：
+
+- 5 个 `/api/cases/collections*` 接口。
+- 两张表。
+- `CaseRow.collections` 字段。
+- 列表的 `collection` 参数。
+- 导出里的「收藏夹」列。
+
+## 七、抽样批次
+
+- `POST /api/cases/batches` 新增 `skipProcessed?: boolean`，默认 true，跳过已处理的记录。如果收到旧字段，按 `skipProcessed` 理解。
+- `CaseBatch.reviewed` 改名为 `processed`：批次里已处理的条数，实时计算。
+- `CaseBatch.filters` 只存筛选条件，不存 `line`、`from`、`to`、`unit`、`sort`、`offset`、`limit`。
+
+## 八、AI 分析
+
+- `CaseAnalysis.perCase` 改为 `{ id: Id; tags: Id[]; note: string }[]`，去掉 `rating`。
+- 提示词里，要求模型只从当前可用的标签里选；如果判断图其实没问题，就选 `false_alarm`。
+- 预估接口的 `estimated` 和 `currency` 仍需补上，见第一轮的验收意见。
+
+## 九、导出
+
+- **列**：
+  - 删除评价、状态、收藏夹这三列。
+  - 新增：处理时间、生效标签（换行分隔）、批注数、最近 3 条批注、是否在可做模板池、池备注。
+- **「步骤」工作表**：评价列改为该步骤的生效标签和批注。
+- **`scope=library`**：导出案例集，文件名为 `案例集_{业务线}_{yyyy-mm-dd}.xlsx`。
+- **`pool=any`**：导出池子，文件名为 `可做模板_{业务线}_{yyyy-mm-dd}.xlsx`。
+
+## 十、缩略图并发（列表卡顿的根因）
+
+现在 `Thumbnails.get` 的下载、解码和压缩都在 `self.lock` 里执行，所有缩略图请求只能一个一个排队。列表首屏加载慢、悬停大图卡顿，都是这个原因。改法：
+
+- 全局锁只用来保护读写缓存文件和清单这几步。下载和缩放放到锁外面。
+- 同一个 key 的并发请求，共用同一个正在进行的下载（每个 key 一把锁或一个 future），不要重复下载。
+- 确认服务端处理请求的线程数不少于 16。
+- 缩略图的响应头加上 `Cache-Control: public, max-age=31536000, immutable`，让浏览器缓存。
+- **验收**：清空缓存后，一次并发请求 24 张不同的 480 宽缩略图，总耗时不超过最慢那一张的 1.5 倍。
+
+## 十一、验证（第二轮）
+
+- **打标即处理**：给链打一个标签后，`processed=done`，`processedAt` 有值，出现在 `scope=library` 里。去掉这个标签后，回到 `todo`，从案例集里消失。
+- **步骤标签向上汇总**：只给链的第 2 步打标签，链的 `effectiveTags` 包含这个标签，`processed=done`。其他步骤的 `inherited` 为 false，`effectiveTags` 为空。
+- **只评论**：只给链写一条批注，链的 `processed=noted`，`annotationCount` 为 1；给第 3 步写批注，链的 `annotationCount` 加 1。
+- **标签排序**：给 3 条 case 打「颜色偏」后，`/api/cases/tags` 返回的第一个是「颜色偏」。
+- **案例集统计**：`tags[].cases` 之和不小于 `processed`；`falseAlarm.rate` 的分母是已处理的 bad 条数。
+- **池子**：加 2 条进池，带这 2 个 `caseIds` 调用 `POST /api/templates` 后，池条目的 `templateId` 有值，模板详情的 `sourceCases` 有这 2 条。
+- **迁移**：之前打了「可做模板」标签的 case 都在池子里，标签已归档。
+- **收藏夹**：`/api/cases/collections` 返回 404。
