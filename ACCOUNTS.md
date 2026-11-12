@@ -53,7 +53,7 @@ export interface Account {
   - 增加 `points=low`：只看 `low_points`。
   - 新增 `GET /api/owners?line=`，返回 `{ name: string; role: "sales" | "after_sales"; enterprises: number }[]`，前端用来做筛选下拉。
 - **导出**：客户名单导出 `GET /api/enterprises/export` 增加销售、售后、剩余点数、近 7 日消耗、预计可用天数这几列。
-- **未匹配**：`GET /api/accounts/unmatched` 返回未匹配的行，前端在数据页展示。
+- **未匹配**：`GET /api/accounts/unmatched` 返回未匹配的行，前端在数据页展示。返回 `{ name: string; phone: string | null; sales: string | null; afterSales: string | null; remaining: number; used7d: number; takenAt: Timestamp }[]`，没有时返回 `[]`。
 - **数据页**：`GET /api/pipeline`（或数据页现有的接口）里增加这项采集的最近运行状态、行数和匹配数。
 
 ## 验证
@@ -63,3 +63,12 @@ export interface Account {
 - 连续两天采集后，`trend` 有 2 个点，`daysLeft` 与 `remaining ÷ (used7d / 7)` 一致。
 - 「市场-知衣售前」「杭州知小布科技」（销售、售后为测试人员或测试）的 `internal` 为 true。
 - 手工把某家的售后改成别人后，再采集一次，手工值不被覆盖。
+
+## 前端完成情况
+
+前端已按上面的契约做好，字段缺失时自动隐藏，后端上线即生效：
+
+- 客户列表：企业名下出现「点数剩 N 天 / 点数用完」红标；新增「剩余点数」列（可按剩余天数排序，悬停看总点数、近 7 天、昨天）和「销售 · 售后」列；工具栏新增「负责人」筛选（优先 `GET /api/owners`，没有时用名单里的 owner 汇总）；「预警」里新增「点数快用完」，前端按 `daysLeft <= 7 或 remaining < used7d` 兜底计算。
+- 企业抽屉：顶部新增账户条，销售、售后可点击直接改（`PATCH /api/enterprises/:id` 带 `owner`），右侧是剩余点数、还能用几天、近 7 天和昨天消耗、30 天剩余曲线；内部账号有标记。
+- 数据页：覆盖卡片显示「点数与负责人」更新时间（`Meta.accountsAt`）；有未匹配行时出现「没对上的点数账号」表格。
+- 侧边栏底部的后端状态悬停显示点数更新时间。

@@ -11,6 +11,7 @@ import { Badge, Card, Empty, ErrorState, Skel } from "../ui/display"
 import { Icon } from "../ui/icons"
 import { Select, toast } from "../ui/overlays"
 import { PipelinePanel } from "./PipelinePanel"
+import { accountsAt, useUnmatched } from "../lib/accounts"
 
 export const DataPage = () => {
   const [tab, setTab] = useState<"imports" | "pipeline" | "settings">("imports")
@@ -136,6 +137,7 @@ const Imports = () => {
             <Empty icon="inbox" title="还没有导入" compact />
           )}
         </Card>
+        <Unmatched />
       </div>
       <Card className="span-4" title="覆盖" sub="每周哪几天有数据">
         {meta ? (
@@ -168,6 +170,7 @@ const Imports = () => {
           <Skel h={200} />
         )}
         {meta?.lastImportAt && <div className="faint" style={{ fontSize: 13, marginTop: 14 }}>最近导入 {time(meta.lastImportAt)}</div>}
+        {accountsAt(meta) && <div className="faint" style={{ fontSize: 13, marginTop: 8 }}>点数与负责人 {time(accountsAt(meta)!)}</div>}
         <div className="faint" style={{ fontSize: 13, marginTop: 8 }}>{lineName[line]} · 状态刷新 {meta?.coverage.filter(c => c.line === line).map(c => c.refreshedAt).sort().at(-1) ? time(meta.coverage.filter(c => c.line === line).map(c => c.refreshedAt).sort().at(-1)!) : "—"}</div>
       </Card>
     </div>
@@ -359,5 +362,50 @@ const SettingsForm = () => {
         </div>
       )}
     </div>
+  )
+}
+
+const Unmatched = () => {
+  const q = useUnmatched()
+  const [all, setAll] = useState(false)
+  const rows = q.data ?? []
+  if (!rows.length) return null
+  const shown = all ? rows : rows.slice(0, 8)
+  return (
+    <Card flush title="没对上的点数账号" sub={`${rows.length} 个，按手机号和名称都没找到对应企业`}>
+      <div className="table-scroll">
+        <table className="table flush um-table">
+          <thead>
+            <tr>
+              <th>企业名称</th>
+              <th>超管手机号</th>
+              <th>销售</th>
+              <th>售后</th>
+              <th className="r">剩余点数</th>
+              <th className="r">近 7 天</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r, i) => (
+              <tr key={`${r.name}-${i}`}>
+                <td><div className="um-name" title={r.name}>{r.name}</div></td>
+                <td className="num faint">{r.phone ?? "—"}</td>
+                <td>{r.sales ?? <span className="faint">—</span>}</td>
+                <td>{r.afterSales ?? <span className="faint">—</span>}</td>
+                <td className="r num">{num(r.remaining)}</td>
+                <td className="r num">{num(r.used7d)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > 8 && (
+        <div style={{ padding: "8px 12px" }}>
+          <Button size="sm" variant="ghost" iconRight={all ? "chevUp" : "chevDown"} onClick={() => setAll(!all)}>
+            {all ? "收起" : `展开全部 ${rows.length} 个`}
+          </Button>
+        </div>
+      )}
+    </Card>
   )
 }

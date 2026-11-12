@@ -9,6 +9,7 @@ import "./styles/layout.css"
 import "./styles/pages.css"
 import "./styles/cases.css"
 import "./styles/review.css"
+import "./styles/points.css"
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30000, refetchOnWindowFocus: false } } })
 

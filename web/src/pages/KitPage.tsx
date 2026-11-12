@@ -10,6 +10,8 @@ import { DiffText, MarkControl, PromptEditor, VersionList } from "../ui/prompt"
 import { ExportMenu } from "../ui/export"
 import { JobProgress } from "../ui/insight"
 import { MovementCard } from "./movement"
+import { AccountStrip, OwnerCell, PointsCell, PointsTag } from "../ui/points"
+import type { Account } from "../lib/accounts"
 import type { Mark, MovementAnalysis, TemplateVersion } from "@spec/contract"
 
 const kitContent = (prompt: string) => ({ title: "换色", task: "", prompt, variables: [], slots: [{ name: "款式图", required: true, requirement: "" }], model: null, ratio: null, resolution: null, fits: "", avoids: "" })
@@ -230,6 +232,18 @@ export const KitPage = () => {
             <ExportMenu items={[{ key: "a", label: "官方模板配置表", run: () => toast("导出") }, { key: "b", label: "模板监控", run: () => toast("导出") }]} />
           </div>
         </Card>
+        <Card className="span-12" title="点数与负责人 · PointsCell / PointsTag / OwnerCell / AccountStrip">
+          <div className="stack" style={{ gap: 16 }}>
+            <div className="row" style={{ gap: 28, alignItems: "center" }}>
+              {kitAccounts.map((a, i) => <PointsCell key={i} a={a} />)}
+              <PointsTag a={kitAccounts[2]} />
+              <PointsTag a={kitAccounts[3]} />
+              <OwnerCell o={{ sales: "何好姣", afterSales: "林泽雄" }} />
+            </div>
+            <AccountStrip a={kitAccounts[0]} owner={{ sales: "何好姣", afterSales: "林泽雄" }} onOwner={(o) => toast(`${o.sales} / ${o.afterSales}`)} />
+            <AccountStrip a={null} owner={{ sales: null, afterSales: null }} onOwner={() => toast("保存")} />
+          </div>
+        </Card>
         <Card className="span-12" title="涨跌原因 · MovementCard">
           <MovementCard m={kitMove} showName />
         </Card>
@@ -243,3 +257,12 @@ export const KitPage = () => {
     </div>
   )
 }
+
+const kitTrend = (start: number, step: number) => Array.from({ length: 30 }, (_, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`.replace("2026-10-31", "2026-11-01"), remaining: Math.max(0, Math.round(start - step * i + Math.sin(i) * step * 0.6)) }))
+const kitAccounts: Account[] = [
+  { remaining: 88509, total: 120000, used7d: 6200, usedYesterday: 910, daysLeft: 99.9, trend: kitTrend(114000, 870), internal: false, takenAt: "2026-11-12T07:31:00+08:00" },
+  { remaining: 14457, total: 50000, used7d: 5100, usedYesterday: 700, daysLeft: 19.8, trend: kitTrend(36000, 740), internal: false, takenAt: "2026-11-12T07:31:00+08:00" },
+  { remaining: 2100, total: 30000, used7d: 3600, usedYesterday: 480, daysLeft: 4.1, trend: kitTrend(17000, 520), internal: false, takenAt: "2026-11-12T07:31:00+08:00" },
+  { remaining: 0, total: 10000, used7d: 900, usedYesterday: 0, daysLeft: 0, trend: [], internal: false, takenAt: "2026-11-12T07:31:00+08:00" },
+  { remaining: 5000, total: 5000, used7d: 0, usedYesterday: 0, daysLeft: null, trend: [], internal: true, takenAt: "2026-11-12T07:31:00+08:00" },
+]

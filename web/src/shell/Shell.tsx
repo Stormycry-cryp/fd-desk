@@ -9,6 +9,7 @@ import { Segmented, Kbd, cx } from "../ui/controls"
 import { Icon, type IconName } from "../ui/icons"
 import { Tooltip } from "../ui/overlays"
 import { CoverageDots } from "../ui/display"
+import { accountsAt } from "../lib/accounts"
 import { WeekPicker } from "./WeekPicker"
 
 const nav: { key: PageKey; label: string; icon: IconName; k: string }[] = [
@@ -100,7 +101,7 @@ export const Shell = ({ children, onSearch }: { children: ReactNode; onSearch: (
           </a>
         </nav>
         <div className="side-foot">
-          <Tooltip content={metaError ? "本机后端连接失败" : "使用本机后端的真实导入数据"}>
+          <Tooltip content={metaError ? "本机后端连接失败" : accountsAt(meta) ? `点数与负责人 ${time(accountsAt(meta)!)} 更新` : "使用本机后端的真实导入数据"}>
             <div className={cx("src-mode", !!metaError && "error")}>
               <i />
               <span className="stack">

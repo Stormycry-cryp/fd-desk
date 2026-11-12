@@ -23,7 +23,8 @@ export const poolAction: Record<Pool, string> = {
 
 export const patternName: Record<Pattern, string> = { retry: "重试", tweak: "微调", batch: "批量", adapt: "适配", rework: "改写", new: "新起", agent: "Agent", none: "无用户" }
 
-export const alertName: Record<AlertKind, string> = {
+export const alertName: Record<AlertKind | "low_points", string> = {
+  low_points: "点数快用完",
   drop: "掉量",
   trend: "多周下滑",
   vanished: "消失",

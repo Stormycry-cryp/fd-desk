@@ -17,6 +17,11 @@ import { Heatmap, StackBar, TrendChart } from "../../ui/charts"
 import { Icon } from "../../ui/icons"
 import { Drawer, Menu, Tooltip, toast } from "../../ui/overlays"
 import { MovementTag, PoolTag, StatusTag } from "../bits"
+import { useQueryClient } from "@tanstack/react-query"
+import type { Owner } from "@spec/contract"
+import { call } from "../../api/client"
+import { accountOf, ownerOf } from "../../lib/accounts"
+import { AccountStrip } from "../../ui/points"
 
 export const EnterpriseDrawer = ({ id }: { id: string }) => {
   const [open, setOpen] = useState(true)
@@ -125,7 +130,23 @@ export const EnterpriseView = ({ id, page }: { id: string; page?: boolean }) => 
   )
 }
 
+const useSaveOwner = (id: string) => {
+  const qc = useQueryClient()
+  return async (owner: Owner) => {
+    try {
+      await call("PATCH /api/enterprises/:id", { params: { id }, body: { owner } })
+      qc.invalidateQueries({ queryKey: ["GET /api/enterprises/:id"] })
+      qc.invalidateQueries({ queryKey: ["GET /api/enterprises"] })
+      qc.invalidateQueries({ queryKey: ["GET /api/owners"] })
+      toast("已保存负责人", { tone: "ok" })
+    } catch (e) {
+      toast((e as Error).message, { tone: "error" })
+    }
+  }
+}
+
 const Top = ({ d, p, page, missing }: { d: EnterpriseDetail; p: Profile | null; page?: boolean; missing?: boolean }) => {
+  const saveOwner = useSaveOwner(d.enterprise.id)
   const setTag = useSetTag(d.enterprise.id)
   const setHeadline = useSetHeadline(d.enterprise.id)
   const lines = (["inspiration", "video"] as Line[]).filter((l) => d.lines[l])
@@ -165,6 +186,7 @@ const Top = ({ d, p, page, missing }: { d: EnterpriseDetail; p: Profile | null; 
         </span>
         <span className="faint">首次 {weekShort(d.firstSeenAt)}</span>
       </div>
+      <AccountStrip a={accountOf(d)} owner={ownerOf(d)} onOwner={saveOwner} />
     </div>
   )
 }

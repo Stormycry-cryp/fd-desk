@@ -20,8 +20,10 @@ import { Spark } from "../ui/charts"
 import { Icon } from "../ui/icons"
 import { FilterChip, Menu, Tooltip } from "../ui/overlays"
 import { MovementTag } from "./bits"
+import { accountOf, isLow, ownerMatch, ownerOf, ownersFromRows, useOwners } from "../lib/accounts"
+import { OwnerCell, PointsCell, PointsTag } from "../ui/points"
 
-type SortKey = "name" | "level" | "tasks" | "delta" | "rate" | "share" | "stuck" | "last" | "ppd"
+type SortKey = "name" | "level" | "tasks" | "delta" | "rate" | "share" | "stuck" | "last" | "ppd" | "points"
 const levelRank = (l: Level | null) => (l ? 5 - levelOrder.indexOf(l) : 0)
 
 const sorters: Record<SortKey, (r: RosterRow) => number | string> = {
@@ -34,6 +36,16 @@ const sorters: Record<SortKey, (r: RosterRow) => number | string> = {
   stuck: (r) => r.inspiration?.stuckShare ?? r.video?.notDownloadedPoints ?? 0,
   last: (r) => (r.lastActiveAt ? new Date(r.lastActiveAt).getTime() : 0),
   ppd: (r) => r.video?.pointsPerDownloaded ?? -1,
+  points: (r) => {
+    const a = accountOf(r)
+    return a ? (a.remaining <= 0 ? -1 : a.daysLeft ?? 1e6) : 1e7
+  },
+}
+
+type AlertKey = AlertKind | "low_points"
+const alertsOf = (r: RosterRow): AlertKey[] => {
+  const xs = r.alerts as AlertKey[]
+  return isLow(accountOf(r)) && !xs.includes("low_points") ? [...xs, "low_points"] : xs
 }
 
 export const exportFile = download
@@ -93,10 +105,19 @@ export const CustomersPage = () => {
     return m
   }, [trends.list])
   const alertCounts = useMemo(() => {
-    const m = new Map<AlertKind, number>()
-    rows.forEach((r) => r.alerts.forEach((a) => m.set(a, (m.get(a) ?? 0) + 1)))
+    const m = new Map<AlertKey, number>()
+    rows.forEach((r) => alertsOf(r).forEach((a) => m.set(a, (m.get(a) ?? 0) + 1)))
     return m
   }, [rows])
+  const ownersQ = useOwners(line)
+  const owners = useMemo(() => {
+    const local = ownersFromRows(rows)
+    const list = ownersQ.data?.length ? ownersQ.data : local
+    const count = new Map(local.map((o) => [`${o.role}:${o.name}`, o.enterprises]))
+    return list.map((o) => ({ ...o, enterprises: count.get(`${o.role}:${o.name}`) ?? 0 })).sort((a, b) => (a.role === b.role ? b.enterprises - a.enterprises : a.role === "sales" ? -1 : 1))
+  }, [rows, ownersQ.data])
+  const hasOwner = owners.length > 0
+  const hasPoints = useMemo(() => rows.some((r) => accountOf(r)), [rows])
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase()
     let xs = rows.filter(
@@ -104,7 +125,8 @@ export const CustomersPage = () => {
         (route.pool === "all" || r.pool === route.pool) &&
         (!route.level.length || (!!r.level && route.level.includes(r.level))) &&
         (!route.movement.length || route.movement.includes(r.movement)) &&
-        (!route.alert.length || route.alert.some((a) => r.alerts.includes(a))) &&
+        (!route.alert.length || route.alert.some((a) => alertsOf(r).includes(a))) &&
+        (!route.owner || ownerMatch(ownerOf(r), route.owner)) &&
         (!route.trend.length || (!!trends.map.get(r.enterprise.id) && route.trend.includes(trends.map.get(r.enterprise.id)!.kind))) &&
         (!models.length || models.some((m) => modelSets.get(m)?.has(r.enterprise.id))) &&
         (!intent.length || intent.includes(r.inspiration?.topIntent ?? r.video?.topMode ?? "")) &&
@@ -119,7 +141,7 @@ export const CustomersPage = () => {
       return (typeof x === "string" ? x.localeCompare(y as string, "zh") : (x as number) - (y as number)) * sort.dir
     })
     return xs
-  }, [rows, route.pool, route.level, route.movement, route.alert, route.trend, trends.map, intent, models, modelSets, tagSel, route.noted, ex, search, sort])
+  }, [rows, route.pool, route.level, route.movement, route.alert, route.owner, route.trend, trends.map, intent, models, modelSets, tagSel, route.noted, ex, search, sort])
   useEffect(() => setFocus(-1), [filtered.length, route.pool])
   useEffect(() => {
     if (focus >= 0) tbody.current?.children[focus]?.scrollIntoView({ block: "nearest" })
@@ -166,7 +188,7 @@ export const CustomersPage = () => {
   const pc = q.data?.poolCounts
   const insp = converting || line === "inspiration"
   const active = filtered.filter((r) => r.tasks > 0).length
-  const anyFilter = route.level.length || route.movement.length || route.alert.length || route.trend.length || intent.length || models.length || search || tagSel.size || route.noted.length
+  const anyFilter = !!route.owner || route.level.length || route.movement.length || route.alert.length || route.trend.length || intent.length || models.length || search || tagSel.size || route.noted.length
   const tagCount = (d: TagDimension, v: string) => (extra.data ?? []).filter((x) => x.tags.some((t) => t.dimension === d && t.value === v)).length
   const noteAny = (extra.data ?? []).filter((x) => x.annotationCount > 0).length
   const noteRecent = (extra.data ?? []).filter((x) => x.lastAnnotation && new Date(x.lastAnnotation.at).getTime() >= weekAgo).length
@@ -213,7 +235,8 @@ export const CustomersPage = () => {
         <FilterChip label="层级" multi value={route.level} onChange={(v) => navigate({ level: v as Level[] }, { replace: true })} options={levelOrder.map((l) => ({ value: l, label: <LevelTag level={l} />, text: levelName[l], count: rows.filter((r) => r.level === l).length }))} />
         <FilterChip label="变动" multi value={route.movement} onChange={(v) => navigate({ movement: v as Movement[] }, { replace: true })} options={(Object.keys(movementName) as Movement[]).map((m) => ({ value: m, label: movementName[m], count: rows.filter((r) => r.movement === m).length })).filter((o) => o.count)} />
         <FilterChip label="多周趋势" multi value={route.trend} onChange={(v) => navigate({ trend: v as TrendKind[] }, { replace: true })} options={trendOrder.map((k) => ({ value: k, label: <span className={cx("trend-opt", k)}><i />{trendName[k]}</span>, text: trendName[k], count: trendCounts.get(k) ?? 0 }))} />
-        <FilterChip label="预警" multi value={route.alert} onChange={(v) => navigate({ alert: v as AlertKind[] }, { replace: true })} options={[...alertCounts].map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
+        {hasOwner && <FilterChip label="负责人" icon="user" search value={route.owner ? [route.owner] : []} onChange={(v) => navigate({ owner: v[0] ?? null }, { replace: true })} options={owners.map((o) => ({ value: o.name, label: o.name, count: o.enterprises, group: o.role === "sales" ? "销售" : "售后" })).filter((o, i, xs) => xs.findIndex((x) => x.value === o.value) === i)} />}
+        <FilterChip label="预警" multi value={route.alert as AlertKey[]} onChange={(v) => navigate({ alert: v as AlertKind[] }, { replace: true })} options={[...alertCounts].sort((a, b) => (a[0] === "low_points" ? -1 : b[0] === "low_points" ? 1 : 0)).map(([k, n]) => ({ value: k, label: alertName[k], count: n }))} />
         <FilterChip label={insp ? "任务类型" : "模式"} multi value={intent} onChange={(v) => navigate({ intent: v }, { replace: true })} options={intents.map(([k, n]) => ({ value: k, label: k, count: n }))} />
         <FilterChip label="模型" multi search value={models} onChange={(v) => navigate({ models: v }, { replace: true })} options={(q.data?.models ?? []).map((model) => ({ value: model, label: model, count: modelSets.get(model)?.size }))} />
         {tagOrder.map((d) => {
@@ -221,7 +244,7 @@ export const CustomersPage = () => {
           return opts.length ? <FilterChip key={d} label={tagDimName[d]} multi value={tagSel.get(d) ?? []} onChange={(v) => setTag(d, v)} options={opts.map((x) => ({ value: x.value, label: x.value, count: tagCount(d, x.value) }))} /> : null
         })}
         <FilterChip label="批注" multi value={route.noted} onChange={(v) => navigate({ noted: v as ("any" | "recent")[] }, { replace: true })} options={[{ value: "any", label: "有批注", count: noteAny }, { value: "recent", label: "近 7 天有跟进", count: noteRecent }]} />
-        {anyFilter && (
+        {!!anyFilter && (
           <Button
             size="sm"
             variant="ghost"
@@ -261,6 +284,8 @@ export const CustomersPage = () => {
                   <th>{converting ? <Tooltip content="按自由改款提示词的关键词归类"><span>主要任务</span></Tooltip> : insp ? "主要类型" : "主要模式"}</th>
                   {converting ? <th className="r">近四周任务</th> : insp ? th("stuck", <Tooltip content="批量：同一句提示词换图；卡住：同一张图重试或微调"><span>批量 · 卡住</span></Tooltip>, "r") : th("ppd", <Tooltip content="耗点 / 被下载的视频数"><span>每条下载</span></Tooltip>, "r")}
                   {!insp && th("stuck", "未下载耗点", "r")}
+                  {hasPoints && th("points", <Tooltip content="剩余点数 · 按近 7 天速度还能用多久"><span>剩余点数</span></Tooltip>)}
+                  {hasOwner && <th>销售 · 售后</th>}
                   <th>{converting ? "转化依据与建议" : "档案"}</th>
                   <th>最近批注</th>
                   <th>12 周</th>
@@ -269,7 +294,7 @@ export const CustomersPage = () => {
               </thead>
               <tbody ref={tbody}>
                 {filtered.map((r, i) => (
-                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} tr={converting ? undefined : trends.map.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} converting={converting} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
+                  <Row key={r.enterprise.id} r={r} x={ex.get(r.enterprise.id)} cols={{ points: hasPoints, owner: hasOwner }} tr={converting ? undefined : trends.map.get(r.enterprise.id)} onAnalyze={() => analyze.mutate({ enterprise: r.enterprise.id, line, week: week! })} line={line} converting={converting} focus={i === focus} open={route.ent === r.enterprise.id} selected={selected.has(r.enterprise.id)} onToggle={() => toggle(r.enterprise.id)} onOpen={() => (setFocus(i), navigate({ ent: r.enterprise.id }))} />
                 ))}
               </tbody>
             </table>
@@ -292,7 +317,7 @@ export const CustomersPage = () => {
   )
 }
 
-const Row = ({ r, x, tr, onAnalyze, line, converting, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; tr: Trend | undefined; onAnalyze: () => void; line: Line; converting: boolean; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
+const Row = ({ r, x, cols, tr, onAnalyze, line, converting, focus, open, selected, onToggle, onOpen }: { r: RosterRow; x: RosterExtra | undefined; cols: { points: boolean; owner: boolean }; tr: Trend | undefined; onAnalyze: () => void; line: Line; converting: boolean; focus: boolean; open: boolean; selected: boolean; onToggle: () => void; onOpen: () => void }) => {
   const insp = converting || line === "inspiration"
   const i = r.inspiration
   const v = r.video
@@ -310,6 +335,7 @@ const Row = ({ r, x, tr, onAnalyze, line, converting, focus, open, selected, onT
             <span className="name">{r.enterprise.name}</span>
             <span className="sub">
               {x?.tags.length ? x.tags.filter((t) => t.dimension !== "rhythm").slice(0, 2).map((t) => <TagChip key={t.dimension} t={t} />) : <span>{ago(r.lastActiveAt)}</span>}
+              <PointsTag a={accountOf(r)} />
               {!r.downloadSignalReliable ? (
                 <Tooltip content={`任务多但几乎不下载，可能用别的方式保存结果${r.excluded ? "；已从对比中排除" : ""}`}>
                   <span className="badge warn">下载存疑</span>
@@ -369,6 +395,16 @@ const Row = ({ r, x, tr, onAnalyze, line, converting, focus, open, selected, onT
           <td className="r num">{v?.pointsPerDownloaded != null ? v.pointsPerDownloaded.toFixed(0) : <span className="faint">—</span>}</td>
           <td className="r num">{v && v.notDownloadedPoints ? compact(v.notDownloadedPoints) : <span className="faint">—</span>}</td>
         </>
+      )}
+      {cols.points && (
+        <td>
+          <PointsCell a={accountOf(r)} />
+        </td>
+      )}
+      {cols.owner && (
+        <td>
+          <OwnerCell o={ownerOf(r)} />
+        </td>
       )}
       <td>
         {(converting ? r.conversion?.opportunity : x?.headline) ? (
