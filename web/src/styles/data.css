@@ -1089,3 +1089,51 @@
   font-size: 12px;
   opacity: 0.7;
 }
+
+.table.freeze th:nth-child(-n + 2),
+.table.freeze td:nth-child(-n + 2) {
+  position: sticky;
+  z-index: 1;
+}
+
+.table.freeze th:nth-child(-n + 2) {
+  z-index: 3;
+}
+
+.table.freeze th:first-child,
+.table.freeze td:first-child {
+  left: 0;
+  width: 52px;
+  min-width: 52px;
+  max-width: 52px;
+  box-sizing: border-box;
+}
+
+.table.freeze th:nth-child(2),
+.table.freeze td:nth-child(2) {
+  left: 52px;
+}
+
+.table.freeze th:nth-child(2)::after,
+.table.freeze td:nth-child(2)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -14px;
+  bottom: -1px;
+  width: 14px;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(24, 24, 27, 0.07), rgba(24, 24, 27, 0));
+  opacity: 0;
+  transition: opacity var(--t) var(--ease);
+}
+
+.table-wrap.scrolled .table.freeze th:nth-child(2)::after,
+.table-wrap.scrolled .table.freeze td:nth-child(2)::after {
+  opacity: 1;
+}
+
+.table-wrap.scrolled .table.freeze th:nth-child(2),
+.table-wrap.scrolled .table.freeze td:nth-child(2) {
+  box-shadow: inset -1px 0 0 var(--line);
+}

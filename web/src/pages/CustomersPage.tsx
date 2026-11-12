@@ -268,8 +268,8 @@ export const CustomersPage = () => {
         ) : !filtered.length ? (
           <Empty icon="users" title="没有符合条件的企业" text="换个页签或清除筛选" />
         ) : (
-          <div className="table-wrap">
-            <table className="table clickable flush">
+          <div className="table-wrap" onScroll={(e) => e.currentTarget.classList.toggle("scrolled", e.currentTarget.scrollLeft > 2)}>
+            <table className="table clickable flush freeze">
               <thead>
                 <tr>
                   <th className="sel">
