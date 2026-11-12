@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 from zipfile import ZipFile
@@ -102,14 +103,20 @@ def test_manual_review_inheritance_tags_and_annotations(real_cases):
     response = client.put("/api/cases/reviews", json={**selection, "rating": "bad", "addTags": [tag["id"]], "status": "seen"})
     assert response.json() == {"updated": 1}
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": "chain"}).json()
-    assert all(step["review"]["rating"] == "bad" and step["review"]["inherited"] for step in detail["steps"])
+    assert detail["processed"] == "done" and detail["review"]["processedAt"]
+    processed_at = detail["review"]["processedAt"]
+    assert "rating" not in detail["review"] and "status" not in detail["review"]
+    assert all(step["review"]["tags"] == [] and step["review"]["effectiveTags"] == [tag["id"]] and step["review"]["inherited"] for step in detail["steps"])
+    assert page(client, scope="library", week="2020-01-06")["total"] == 1
     step = detail["steps"][1]
     task_selection = {"items": [{"id": step["rowKey"], "unit": "task"}]}
-    assert client.put("/api/cases/reviews", json={**task_selection, "rating": "good"}).status_code == 200
+    assert client.put("/api/cases/reviews", json={**task_selection, "setTags": ["color_shift"]}).status_code == 200
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": "chain"}).json()
-    assert detail["steps"][1]["review"]["rating"] == "good"
+    assert detail["steps"][1]["review"]["effectiveTags"] == ["color_shift"]
     assert detail["steps"][1]["review"]["inherited"] is False
     assert detail["steps"][0]["review"]["inherited"] is True
+    assert set(detail["review"]["effectiveTags"]) == {tag["id"], "color_shift"}
+    assert detail["review"]["processedAt"] == processed_at
     assert client.request("DELETE", "/api/cases/reviews", json=task_selection).status_code == 200
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": "chain"}).json()
     assert detail["steps"][1]["review"]["inherited"] is True
@@ -117,27 +124,29 @@ def test_manual_review_inheritance_tags_and_annotations(real_cases):
     context.profiles.add_annotation(fact.enterprise, "需要复核该步骤", anchor={"block": "record:" + step["rowKey"]})
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": "chain"}).json()
     assert detail["annotationCount"] == len(detail["annotations"]) == 2
+    assert detail["steps"][1]["annotationCount"] == 1
     assert len(page(client, noted="any")["items"]) >= 1
     issues = client.get("/api/cases/issues", params={"line": fact.line, "week": fact.week}).json()
     assert issues[0]["cases"] == 1 and len(issues[0]["weekly"]) == 8
-    assert issues[0]["weekly"][-1]["cases"] == 1
+    assert next(value for value in issues[0]["weekly"] if value["week"] == fact.week)["cases"] == 1
     assert client.patch(f'/api/cases/tags/{tag["id"]}', json={"archived": True}).status_code == 200
     assert tag["id"] not in {item["id"] for item in client.get("/api/cases/tags", params={"line": "inspiration"}).json()}
     assert tag["id"] in {item["id"] for item in client.get("/api/cases/tags", params={"line": "inspiration", "all": 1}).json()}
     assert client.delete(f'/api/cases/tags/{tag["id"]}').status_code == 404
     assert client.request("DELETE", "/api/cases/reviews", json=selection).status_code == 200
     assert client.get("/api/cases/issues", params={"line": fact.line, "week": fact.week}).json() == []
+    assert page(client, processed="noted")["total"] == 1
+    assert page(client, scope="library")["total"] == 0
 
 
 @pytest.mark.parametrize("strategy", ["stratified", "problems", "per_enterprise", "per_intent"])
-def test_sampling_collections_and_exports(real_cases, strategy):
+def test_sampling_pool_and_exports(real_cases, strategy):
     _context, client = real_cases
     body = {"line": "inspiration", "from": "2026-11-02", "to": "2026-11-08", "unit": "chain", "filters": {"sort": "newest", "offset": "999", "limit": "1"}, "strategy": strategy, "size": 20, "perGroup": 3, "seed": 817}
     first = client.post("/api/cases/batches", json=body)
     assert first.status_code == 200
     first = first.json()
-    assert not {"sort", "offset", "limit"} & first["filters"].keys()
-    assert first["filters"]["from"] == body["from"] and first["filters"]["to"] == body["to"]
+    assert not {"line", "from", "to", "unit", "sort", "offset", "limit"} & first["filters"].keys()
     assert len(first["items"]) == body["size"]
     assert 0 < len(first["items"]) <= 20
     rows = client.get(f'/api/cases/batches/{first["id"]}').json()["rows"]
@@ -151,15 +160,14 @@ def test_sampling_collections_and_exports(real_cases, strategy):
     if strategy == "per_intent":
         assert max(Counter(row["intent"] for row in rows).values()) <= 3
     selection = {"items": first["items"][:3]}
-    assert client.put("/api/cases/reviews", json={**selection, "rating": "bad"}).status_code == 200
-    assert client.get(f'/api/cases/batches/{first["id"]}').json()["reviewed"] == 3
+    assert client.put("/api/cases/reviews", json={**selection, "addTags": ["quality_defect"]}).status_code == 200
+    assert client.get(f'/api/cases/batches/{first["id"]}').json()["processed"] == 3
     assert client.delete(f'/api/cases/batches/{first["id"]}').status_code == 204
     second = client.post("/api/cases/batches", json=body).json()
     assert not {item["id"] for item in first["items"]} & {item["id"] for item in second["items"]}
-    collection = client.post("/api/cases/collections", json={"line": "inspiration", "name": "运营复核案例"}).json()
-    response = client.put(f'/api/cases/collections/{collection["id"]}/items', json={"add": selection["items"]})
-    assert response.json()["count"] == 3
-    assert page(client, collection=collection["id"])["total"] == 3
+    response = client.put('/api/cases/pool', json={"line": "inspiration", "add": selection["items"]})
+    assert response.json()["updated"] == 3
+    assert page(client, pool="any")["total"] == 3
     exported = client.get("/api/cases/export", params={"line": "inspiration", "ids": ",".join(item["id"] for item in selection["items"]), "unit": "chain"})
     assert exported.status_code == 200
     book = load_workbook(io.BytesIO(exported.content), read_only=True)
@@ -168,10 +176,12 @@ def test_sampling_collections_and_exports(real_cases, strategy):
     assert book["步骤"].max_row == sum(detail["stepCount"] for detail in details) + 1
     values = list(book["记录"].values)
     assert any(value for row in values[1:] for value in row[16:18])
+    assert {"处理时间", "生效标签", "批注数", "最近3条批注", "是否在可做模板池", "池备注"} <= set(values[0])
+    assert not {"评价", "状态", "收藏夹"} & set(values[0])
     book.close()
-    assert client.patch(f'/api/cases/collections/{collection["id"]}', json={"name": "已复核案例"}).status_code == 200
-    assert client.delete(f'/api/cases/collections/{collection["id"]}').status_code == 204
-    assert page(client, collection=collection["id"])["total"] == 0
+    assert client.get("/api/cases/collections", params={"line": "inspiration"}).status_code == 404
+    assert client.put("/api/cases/pool", json={"line": "inspiration", "remove": selection["items"]}).status_code == 200
+    assert page(client, pool="any")["total"] == 0
 
 
 def test_case_links_and_analysis_input(real_cases):
@@ -230,13 +240,14 @@ def test_existing_batch_filters_and_video_tag_scope(real_cases):
     batch = client.post("/api/cases/batches", json={"line": "inspiration", "from": "2026-11-02", "to": "2026-11-08", "unit": "chain", "filters": {"outcome": "bad"}, "strategy": "problems", "size": 5}).json()
     selected = batch["items"]
     batch["filters"].update(sort="bad_first", offset="0", limit="50")
+    batch["filters"].update(line="inspiration", unit="chain", **{"from": "2026-11-02", "to": "2026-11-08"})
     context.repo.save("case_batch", batch)
     with context.store.connection() as connection:
         connection.execute("UPDATE case_tags SET lines_json='[]' WHERE id IN ('motion_stiff','video_inconsistent','video_pacing')")
     context.cases = Cases(context)
     stored = context.repo.get("case_batch", batch["id"])
     assert stored["items"] == selected and stored["filters"]["outcome"] == "bad"
-    assert not {"sort", "offset", "limit"} & stored["filters"].keys()
+    assert not {"line", "from", "to", "unit", "sort", "offset", "limit"} & stored["filters"].keys()
     assert context.cases.batch(batch["id"], detail=True)["rows"]
     assert len(context.cases.tags("inspiration")) == 13
     assert len(context.cases.tags("video")) == 16
@@ -273,6 +284,8 @@ def test_template_case_input_and_output_images(real_cases):
 
 def test_review_atomicity_clear_override_and_tag_only_issues(real_cases):
     context, client = real_cases
+    assert client.put("/api/cases/reviews", json=[]).status_code == 422
+    assert client.post("/api/cases/batches", json=[]).status_code == 422
     fact = chain(context)
     target = {"id": fact.id, "unit": fact.unit}
     invalid = client.put("/api/cases/reviews", json={"items": [target, {"id": "absent", "unit": "task"}], "rating": "bad"})
@@ -283,16 +296,138 @@ def test_review_atomicity_clear_override_and_tag_only_issues(real_cases):
     assert client.put("/api/cases/reviews", json={"items": [target], "addTags": ["quality_defect"]}).status_code == 200
     issues = client.get("/api/cases/issues", params={"line": fact.line, "week": fact.week}).json()
     assert issues[0]["cases"] == 1 and issues[0]["tag"]["id"] == "quality_defect"
-    assert client.put("/api/cases/reviews", json={"items": [target], "rating": "bad"}).status_code == 200
+    assert client.put("/api/cases/reviews", json={"items": [target], "rating": "bad", "status": "seen"}).json() == {"updated": 0}
     key = context.cases.index.rows[fact.indices[1]].row_key
     step_target = {"id": key, "unit": "task"}
-    assert client.put("/api/cases/reviews", json={"items": [step_target], "rating": "good", "removeTags": ["quality_defect"]}).status_code == 200
+    assert client.put("/api/cases/reviews", json={"items": [step_target], "setTags": ["color_shift"]}).status_code == 200
     assert client.request("DELETE", "/api/cases/reviews", json={"items": [target]}).status_code == 200
     detail = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()
-    assert detail["review"] is None and detail["steps"][0]["review"] is None
-    assert detail["steps"][1]["review"]["rating"] == "good" and detail["steps"][1]["review"]["inherited"] is False
+    assert detail["review"]["tags"] == [] and detail["review"]["effectiveTags"] == ["color_shift"]
+    assert detail["processed"] == "done" and detail["steps"][0]["review"] is None
+    assert detail["steps"][1]["review"]["tags"] == ["color_shift"] and detail["steps"][1]["review"]["inherited"] is False
+    assert page(client, tag="color_shift")["total"] == 1
+    assert client.request("DELETE", "/api/cases/reviews", json={"items": [step_target]}).status_code == 200
+    detail = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()
+    assert detail["processed"] == "todo" and detail["review"] is None
     assert client.post("/api/cases/batches", json={"line": fact.line, "from": "2026-11-02", "to": "2026-11-08", "unit": fact.unit, "strategy": "problems", "size": 10, "filters": {"outcome": "invalid"}}).status_code == 422
     assert client.get("/api/export/cases", params={"line": fact.line, "from": "2026-11-02"}).status_code == 422
+
+
+def test_library_statistics_false_alarm_tags_and_sorting(real_cases):
+    context, client = real_cases
+    context.cases.refresh()
+    facts = context.cases.index.by_line["inspiration", "chain"]
+    bad = [fact for fact in facts if fact.week == "2026-11-02" and fact.outcome == "bad"][:3]
+    good = next(fact for fact in facts if fact.week == "2026-11-02" and fact.outcome == "good")
+    selection = [{"id": fact.id, "unit": fact.unit} for fact in bad]
+    assert client.put("/api/cases/reviews", json={"items": selection, "setTags": ["color_shift"]}).status_code == 200
+    assert client.get("/api/cases/tags", params={"line": "inspiration"}).json()[0]["id"] == "color_shift"
+    assert client.get("/api/cases/tags", params={"line": "inspiration"}).json()[0]["uses"] == 3
+    assert client.put("/api/cases/reviews", json={"items": [selection[0], {"id": good.id, "unit": good.unit}], "addTags": ["false_alarm"]}).status_code == 200
+    response = client.get("/api/cases/library/stats", params={"line": "inspiration", "unit": "chain", "weeks": 12})
+    assert response.status_code == 200
+    stats = response.json()
+    assert stats["processed"] == 4 and stats["outcomes"] == {"bad": 3, "grind": 0, "good": 1}
+    assert stats["falseAlarm"] == {"cases": 1, "rate": 1 / 3}
+    assert sum(tag["cases"] for tag in stats["tags"]) == 5
+    assert len(stats["weekly"]) == 12 and sum(week["processed"] for week in stats["weekly"]) == 4
+    assert sum(row["cases"] for row in stats["matrix"]) == 5
+    assert sum(enterprise["cases"] for enterprise in stats["enterprises"]) == 4
+    filtered = client.get("/api/cases/library/stats", params={"line": "inspiration", "tag": "false_alarm", "outcome": "bad"}).json()
+    assert filtered["processed"] == 1 and filtered["falseAlarm"]["rate"] == 1
+    library = page(client, scope="library", **{"from": "2020-01-10", "to": "2020-01-01"})
+    assert library["total"] == 4 and library["summary"]["processed"] == 4
+    assert [item["review"]["processedAt"] for item in library["items"]] == sorted((item["review"]["processedAt"] for item in library["items"]), reverse=True)
+    exported = client.get("/api/cases/export", params={"line": "inspiration", "scope": "library"})
+    assert exported.status_code == 200 and "%E6%A1%88%E4%BE%8B%E9%9B%86" in exported.headers["content-disposition"]
+    assert client.request("DELETE", "/api/cases/reviews", json={"items": [selection[0]]}).status_code == 200
+    assert client.get(f'/api/cases/{bad[0].id}', params={"unit": "chain"}).json()["review"] is None
+    assert client.put("/api/cases/reviews", json={"items": [selection[0]], "addTags": ["quality_defect"]}).status_code == 200
+    restarted = Cases(context)
+    restarted.refresh()
+    assert restarted.review(restarted.fact(bad[0].id, "chain"))["processedAt"]
+
+
+def test_pool_template_references_and_legacy_label_migration(real_cases):
+    context, client = real_cases
+    fact = chain(context)
+    task_id = context.cases.index.rows[fact.indices[1]].row_key
+    items = [{"id": fact.id, "unit": "chain"}, {"id": task_id, "unit": "task"}]
+    assert client.put("/api/cases/pool", json={"line": fact.line, "add": items, "note": {"ref": items[0], "text": "用于模板说明"}}).json() == {"updated": 2}
+    created = client.post("/api/templates", json={"line": fact.line, "kind": "custom", "target": fact.enterprise, "caseIds": items, "write": False})
+    assert created.status_code == 200
+    template = created.json()["template"]
+    assert [(item["id"], item["unit"]) for item in template["sourceCases"]] == [(item["id"], item["unit"]) for item in items]
+    pool = client.get("/api/cases/pool", params={"line": fact.line}).json()
+    assert len(pool["entries"]) == 2 and all(item["templateId"] == template["id"] for item in pool["entries"])
+    assert any(item["note"] == "用于模板说明" for item in pool["entries"])
+    assert client.put("/api/cases/pool", json={"line": fact.line, "remove": items[:1]}).status_code == 200
+    assert client.get(f'/api/templates/{template["id"]}').status_code == 200
+    assert client.get("/api/cases/pool", params={"line": fact.line, "unit": "chain"}).json()["entries"] == []
+    assert len(client.get("/api/cases/pool", params={"line": fact.line, "unit": "task"}).json()["entries"]) == 1
+    assert client.put("/api/cases/pool", json={"line": fact.line, "add": items[:1]}).status_code == 200
+    assert client.delete(f'/api/templates/{template["id"]}').status_code == 200
+    assert all(item["templateId"] is None for item in client.get("/api/cases/pool", params={"line": fact.line}).json()["entries"])
+    assert client.put("/api/cases/pool", json={"line": fact.line, "remove": items}).status_code == 200
+    with context.store.connection() as connection:
+        connection.execute("INSERT INTO case_tags VALUES ('template_candidate','值得关注','可做模板','[]','good',15,0)")
+        connection.execute("INSERT INTO case_reviews(id,unit,line,enterprise_id,tags_json,updated_at) VALUES (?,?,?,?,?,?)", (fact.id, fact.unit, fact.line, fact.enterprise, json.dumps(["template_candidate", "color_shift"]), fact.started))
+    context.cases = Cases(context)
+    pool = context.cases.pool(fact.line)
+    assert len(pool["entries"]) == 1 and pool["entries"][0]["id"] == fact.id
+    assert context.cases.review(context.cases.fact(fact.id))["tags"] == ["color_shift"]
+    assert next(tag for tag in context.cases.tags(all_=True) if tag["id"] == "template_candidate")["archived"] is True
+    with context.store.connection() as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert not {"case_collections", "case_collection_items"} & tables
+
+
+def test_processing_timestamps_notes_and_read_only_detail(real_cases):
+    context, client = real_cases
+    fact = chain(context)
+    target = {"items": [{"id": fact.id, "unit": fact.unit}]}
+    step_key = context.cases.index.rows[fact.indices[2]].row_key
+    context.profiles.add_annotation(fact.enterprise, "需要确认输入要求", anchor={"block": "case:" + fact.id})
+    context.profiles.add_annotation(fact.enterprise, "核对该步骤", anchor={"block": "record:" + step_key})
+    detail = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()
+    assert detail["processed"] == "noted" and detail["annotationCount"] == 2
+    assert detail["steps"][2]["annotationCount"] == 1 and detail["steps"][0]["annotationCount"] == 0
+    assert client.put("/api/cases/reviews", json={**target, "setTags": ["color_shift"]}).status_code == 200
+    initial = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()["review"]["processedAt"]
+    time.sleep(1.05)
+    assert client.put("/api/cases/reviews", json={**target, "setTags": ["quality_defect"]}).status_code == 200
+    restarted = Cases(context)
+    assert restarted.review(restarted.fact(fact.id, fact.unit))["processedAt"] == initial
+    detail = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()
+    assert detail["review"]["processedAt"] == initial
+    generation = context.store.generation
+    for _ in range(3):
+        assert client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json() == detail
+    assert context.store.generation == generation
+    assert client.request("DELETE", "/api/cases/reviews", json=target).status_code == 200
+    assert page(client, scope="library")["total"] == 0
+    assert client.put("/api/cases/reviews", json={**target, "addTags": ["color_shift"]}).status_code == 200
+    renewed = client.get(f"/api/cases/{fact.id}", params={"unit": fact.unit}).json()["review"]["processedAt"]
+    assert renewed > initial
+    with context.store.connection() as connection:
+        assert connection.execute("SELECT processed_at FROM case_processing WHERE unit=? AND id=?", (fact.unit, fact.id)).fetchone()[0] == renewed
+
+
+def test_sampling_skips_effectively_processed_cases_and_legacy_fields(real_cases):
+    context, client = real_cases
+    fact = chain(context)
+    task_key = context.cases.index.rows[fact.indices[1]].row_key
+    assert client.put("/api/cases/reviews", json={"items": [{"id": task_key, "unit": "task"}], "addTags": ["color_shift"]}).status_code == 200
+    body = {"line": fact.line, "from": "2026-11-02", "to": "2026-11-08", "unit": fact.unit,
+            "strategy": "per_enterprise", "size": 5, "filters": {"processed": "done"}}
+    assert client.post("/api/cases/batches", json=body).json()["items"] == []
+    assert BatchInput.model_validate({**body, "skipReviewed": False}).skipProcessed is False
+    assert BatchInput.model_validate({**body, "skipRated": False}).skipProcessed is False
+    assert BatchInput.model_validate({**body, "skipRated": False, "skipProcessed": True}).skipProcessed is True
+    batch = client.post("/api/cases/batches", json={**body, "skipProcessed": False}).json()
+    assert batch["items"] == [{"id": fact.id, "unit": fact.unit}] and batch["processed"] == 1
+    assert client.request("DELETE", "/api/cases/reviews", json={"items": [{"id": task_key, "unit": "task"}]}).status_code == 200
+    assert client.get(f'/api/cases/batches/{batch["id"]}').json()["processed"] == 0
 
 
 def test_deterministic_sampling_and_bundle(real_cases):

@@ -183,13 +183,12 @@ export interface ApiRecords {
 
 export type CaseOutcome = "bad" | "grind" | "good"
 export type CaseUnit = "chain" | "task"
-export type CaseRating = "good" | "ok" | "bad"
-export type CaseStatus = "todo" | "seen" | "done"
+export type CaseProcessed = "todo" | "done" | "noted"
 export type StepResult = "downloaded" | "not_downloaded" | "failed" | "deleted"
 export interface CaseRef { id: Id; unit: CaseUnit }
-export interface CaseReview { rating: CaseRating | null; tags: Id[]; status: CaseStatus; inherited: boolean; updatedAt: Timestamp }
-export interface CaseTag { id: Id; group: string; label: string; lines: Line[]; tone: "bad" | "good" | "neutral"; order: number; archived: boolean }
-export interface CaseStep { rowKey: Id; index: number; result: StepResult; pattern: Pattern; createdAt: Timestamp; prompt: string; inputs: Media[]; outputs: Media[]; durationSeconds: number | null; points: number; review: CaseReview | null }
+export interface CaseReview { tags: Id[]; effectiveTags: Id[]; inherited: boolean; processedAt: Timestamp | null; updatedAt: Timestamp }
+export interface CaseTag { id: Id; group: string; label: string; lines: Line[]; tone: "bad" | "good" | "neutral"; order: number; archived: boolean; uses: number }
+export interface CaseStep { rowKey: Id; index: number; result: StepResult; pattern: Pattern; createdAt: Timestamp; prompt: string; inputs: Media[]; outputs: Media[]; durationSeconds: number | null; points: number; review: CaseReview | null; annotationCount: number; lastAnnotation: { text: string; at: Timestamp } | null }
 export interface CaseRow {
   id: Id; unit: CaseUnit; line: Line
   enterprise: EnterpriseRef & { level: Level | null; movement: Movement | null }
@@ -197,32 +196,39 @@ export interface CaseRow {
   stepCount: number; downloadedAt: number | null; intent: string | null; mode: string; model: string | null
   config: Task["config"]; points: number; durationSeconds: number | null; slow: boolean; failure: Task["failure"]
   first: CaseStep; last: CaseStep; steps: CaseStep[] | null; fdUrl: string | null; review: CaseReview | null
-  annotationCount: number; lastAnnotation: { text: string; at: Timestamp } | null; collections: Id[]
+  annotationCount: number; lastAnnotation: { text: string; at: Timestamp } | null
+  processed: CaseProcessed; pool: CasePoolEntry | null
 }
 export interface CaseSummary {
   total: number; outcomes: Record<CaseOutcome, number>
   byIntent: { key: string; total: number; bad: number; grind: number }[]
   byEnterprise: { enterprise: EnterpriseRef; total: number; bad: number; grind: number }[]
-  rated: number; ratings: Record<CaseRating, number>
+  processed: number; noted: number
 }
 export interface CasePage {
   items: CaseRow[]; total: number; summary: CaseSummary
-  facets: { outcomes: RecordFacet[]; results: RecordFacet[]; intents: RecordFacet[]; patterns: RecordFacet[]; models: RecordFacet[]; modes: RecordFacet[]; enterprises: { id: Id; name: string; count: number }[]; levels: RecordFacet[]; movements: RecordFacet[]; steps: RecordFacet[]; ratings: RecordFacet[]; tags: RecordFacet[]; statuses: RecordFacet[]; slow: number; noted: number }
+  facets: { outcomes: RecordFacet[]; results: RecordFacet[]; intents: RecordFacet[]; patterns: RecordFacet[]; models: RecordFacet[]; modes: RecordFacet[]; enterprises: { id: Id; name: string; count: number }[]; levels: RecordFacet[]; movements: RecordFacet[]; steps: RecordFacet[]; processed: RecordFacet[]; tags: RecordFacet[]; slow: number; noted: number }
   range: { from: DateKey; to: DateKey } | null
 }
 export interface CaseQuery {
   line: Line; week?: WeekKey; from?: DateKey; to?: DateKey; unit?: CaseUnit
   enterprise?: string; outcome?: string; result?: string; intent?: string; pattern?: string; model?: string; mode?: string
-  level?: string; movement?: string; slow?: boolean; steps?: string; rating?: string; tag?: string; status?: string
-  collection?: Id; noted?: "any" | "none"; q?: string
-  sort?: "bad_first" | "newest" | "oldest" | "steps" | "points"; offset?: number; limit?: number
+  level?: string; movement?: string; slow?: boolean; steps?: string; tag?: string; processed?: string
+  scope?: "week" | "library"; pool?: "any" | "none"; noted?: "any" | "none"; q?: string
+  sort?: "bad_first" | "newest" | "oldest" | "steps" | "points" | "processed"; offset?: number; limit?: number
 }
-export interface CaseCollection { id: Id; name: string; line: Line; count: number; createdAt: Timestamp; updatedAt: Timestamp }
+export interface CasePoolEntry extends CaseRef { line: Line; note: string | null; templateId: Id | null; addedAt: Timestamp }
 export type CaseSampleStrategy = "stratified" | "problems" | "per_enterprise" | "per_intent"
-export interface CaseBatch { id: Id; line: Line; name: string; strategy: CaseSampleStrategy; filters: Record<string, string>; items: CaseRef[]; reviewed: number; createdAt: Timestamp }
+export interface CaseBatch { id: Id; line: Line; name: string; strategy: CaseSampleStrategy; filters: Record<string, string>; items: CaseRef[]; processed: number; createdAt: Timestamp }
 export interface CaseCluster { title: string; summary: string; tags: Id[]; caseIds: Id[]; enterprises: EnterpriseRef[]; severity: "high" | "medium" | "low" }
-export interface CaseAnalysis { id: Id; line: Line; items: CaseRef[]; question: string | null; state: JobState; headline: string; clusters: CaseCluster[]; perCase: { id: Id; rating: CaseRating; tags: Id[]; note: string }[]; suggestions: string[]; cost: { estimated: number | null; spent: number | null; currency: string }; error: ApiError | null; createdAt: Timestamp; finishedAt: Timestamp | null }
+export interface CaseAnalysis { id: Id; line: Line; items: CaseRef[]; question: string | null; state: JobState; headline: string; clusters: CaseCluster[]; perCase: { id: Id; tags: Id[]; note: string }[]; suggestions: string[]; cost: { estimated: number | null; spent: number | null; currency: string }; error: ApiError | null; createdAt: Timestamp; finishedAt: Timestamp | null }
 export interface CaseIssue { tag: CaseTag; cases: number; enterprises: number; topEnterprises: { enterprise: EnterpriseRef; cases: number }[]; weekly: { week: WeekKey; cases: number }[]; samples: (CaseRef & { thumb: string | null })[]; linked: { followups: number; opportunities: number; templates: number } }
+export interface CaseLibraryStats {
+  processed: number; outcomes: Record<CaseOutcome, number>; falseAlarm: { cases: number; rate: number | null }
+  tags: CaseIssue[]; weekly: { week: WeekKey; processed: number; falseAlarm: number; byTag: Record<Id, number> }[]
+  matrix: { tag: Id; intent: string; cases: number }[]
+  enterprises: { enterprise: EnterpriseRef; cases: number; tags: { tag: Id; cases: number }[] }[]
+}
 export interface Template { sourceCases: (CaseRef & { thumb: string | null })[] }
 export interface ApiCases {
   "GET /api/cases": { query: CaseQuery; response: CasePage }
@@ -230,14 +236,12 @@ export interface ApiCases {
   "GET /api/cases/tags": { query: { line: Line; all?: boolean }; response: CaseTag[] }
   "POST /api/cases/tags": { body: Pick<CaseTag, "group" | "label" | "lines" | "tone">; response: CaseTag }
   "PATCH /api/cases/tags/:id": { body: Partial<Pick<CaseTag, "group" | "label" | "lines" | "tone" | "order" | "archived">>; response: CaseTag }
-  "PUT /api/cases/reviews": { body: { items: CaseRef[]; rating?: CaseRating | null; addTags?: Id[]; removeTags?: Id[]; status?: CaseStatus }; response: { updated: number } }
+  "PUT /api/cases/reviews": { body: { items: CaseRef[]; addTags?: Id[]; removeTags?: Id[]; setTags?: Id[] }; response: { updated: number } }
   "DELETE /api/cases/reviews": { body: { items: CaseRef[] }; response: { updated: number } }
-  "GET /api/cases/collections": { query: { line: Line }; response: CaseCollection[] }
-  "POST /api/cases/collections": { body: { line: Line; name: string }; response: CaseCollection }
-  "PATCH /api/cases/collections/:id": { body: { name: string }; response: CaseCollection }
-  "DELETE /api/cases/collections/:id": { response: null }
-  "PUT /api/cases/collections/:id/items": { body: { add?: CaseRef[]; remove?: CaseRef[] }; response: CaseCollection }
-  "POST /api/cases/batches": { body: { line: Line; from: DateKey; to: DateKey; unit: CaseUnit; filters: Record<string, string>; strategy: CaseSampleStrategy; size: number; perGroup?: number; seed?: number; name?: string }; response: CaseBatch }
+  "GET /api/cases/pool": { query: { line: Line; unit?: CaseUnit }; response: { entries: CasePoolEntry[]; rows: CaseRow[] } }
+  "PUT /api/cases/pool": { body: { line: Line; add?: CaseRef[]; remove?: CaseRef[]; note?: { ref: CaseRef; text: string | null } }; response: { updated: number } }
+  "GET /api/cases/library/stats": { query: CaseQuery & { weeks?: number }; response: CaseLibraryStats }
+  "POST /api/cases/batches": { body: { line: Line; from: DateKey; to: DateKey; unit: CaseUnit; filters: Record<string, string>; strategy: CaseSampleStrategy; size: number; perGroup?: number; seed?: number; name?: string; skipProcessed?: boolean }; response: CaseBatch }
   "GET /api/cases/batches": { query: { line: Line }; response: CaseBatch[] }
   "GET /api/cases/batches/:id": { response: CaseBatch & { rows: CaseRow[] } }
   "DELETE /api/cases/batches/:id": { response: null }
@@ -275,7 +279,7 @@ export interface ApiNext extends ApiRecords, ApiCases {
   "POST /api/templates/opportunities/refresh": { body: { line: Line; week: WeekKey }; response: Job }
   "GET /api/templates": { query: { line: Line; kind?: TemplateKind; state?: TemplateState; enterprise?: Id }; response: Template[] }
   "GET /api/templates/:id": { response: Template }
-  "POST /api/templates": { body: { line: Line; kind: TemplateKind; target?: Id; opportunityId?: Id; clusterIds?: Id[]; caseIds?: Id[]; content?: Partial<TemplateContent>; write: boolean }; response: { template: Template; job: Job | null } }
+  "POST /api/templates": { body: { line: Line; kind: TemplateKind; target?: Id; opportunityId?: Id; clusterIds?: Id[]; caseIds?: (Id | CaseRef)[]; content?: Partial<TemplateContent>; write: boolean }; response: { template: Template; job: Job | null } }
   "PATCH /api/templates/:id": { body: Partial<{ kind: TemplateKind; target: Id | null; state: TemplateState; content: TemplateContent; fdTemplateId: number | null; cover: { runId: Id; caseId: Id; armId: Id } | null }>; response: Template }
   "POST /api/templates/:id/revise": { body: { kind: ReviseKind; instruction?: string; runId?: Id }; response: Job }
   "POST /api/templates/:id/restore": { body: { version: number }; response: Template }

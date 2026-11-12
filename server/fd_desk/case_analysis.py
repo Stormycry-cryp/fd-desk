@@ -5,10 +5,10 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from fastapi import FastAPI
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .case_costs import CaseCosts
-from .cases import CaseRef, Rating, Strict
+from .cases import CaseRef, Strict
 from .core import ApiProblem, Line, now
 from .engine import ref
 from .record_analysis import cleanup_images
@@ -33,9 +33,15 @@ class Cluster(Strict):
 
 class Judgment(Strict):
     id: str
-    rating: Rating
     tags: list[str]
     note: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_fields(cls, values):
+        if isinstance(values, dict):
+            return {key: value for key, value in values.items() if key != "rating"}
+        return values
 
 
 class Result(Strict):
@@ -100,6 +106,7 @@ class CaseAnalyses:
         item = self.repo.get("case_analysis", key)
         job = self.context.jobs.get(key)
         item.update(state=job["state"], error=job["error"], finishedAt=job["finishedAt"])
+        item["perCase"] = [{field: value[field] for field in ("id", "tags", "note")} for value in item["perCase"]]
         return {field: item[field] for field in PUBLIC}
 
     def list(self, line):

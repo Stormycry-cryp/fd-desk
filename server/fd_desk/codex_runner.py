@@ -26,6 +26,7 @@ def runtime(directory):
 
 
 def execute(directory, prompt_path, schema_path, output_directory, timeout=10800, *, browser_access=False):
+    runtime(directory)
     capacity = ModelCapacity(ROOT / "data")
     with capacity.acquire("collector" if browser_access else "analysis") as slot:
         return execute_reserved(directory, prompt_path, schema_path, output_directory, timeout,

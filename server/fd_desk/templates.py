@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from rapidfuzz import fuzz
 
 from . import analysis
+from .cases import CaseRef
 from .core import ApiProblem, Line, now, shift_week, validate_week, week_key
 from .engine import main_value, rate, ref
 from .record_analysis import cleanup_images
@@ -55,7 +56,7 @@ class Create(TemplateModel):
     target: str | None = None
     opportunityId: str | None = None
     clusterIds: list[str] = Field(default_factory=list)
-    caseIds: list[str] = Field(default_factory=list)
+    caseIds: list[CaseRef | str] = Field(default_factory=list)
     content: Content = Field(default_factory=Content)
     write: bool
 
@@ -182,7 +183,11 @@ class Templates:
         ids = list(dict.fromkeys(body.clusterIds or (opportunity["clusterIds"] if opportunity else [])))
         members = self._clusters(body.line, ids)
         indices = list(dict.fromkeys(index for key in ids for index in members[key]))
-        source_cases = [self.context.cases.fact(key) for key in dict.fromkeys(body.caseIds)]
+        source_cases = {}
+        for value in body.caseIds:
+            fact = self.context.cases.fact(value) if isinstance(value, str) else self.context.cases.fact(value.id, value.unit)
+            source_cases[fact.unit, fact.id] = fact
+        source_cases = list(source_cases.values())
         if any(fact.line != body.line or target and fact.enterprise != target["id"] for fact in source_cases):
             raise ApiProblem(422, "invalid_source_case", "参考 Case 与模板产品线或目标企业不一致")
         indices = list(dict.fromkeys(indices + [index for fact in source_cases for index in fact.indices]))
@@ -196,8 +201,11 @@ class Templates:
         evidence = opportunity["evidence"] if opportunity else {"uses": len(part) if part is not None else 0, "enterprises": int(part.enterprise_id.nunique()) if part is not None else 0, "downloadRate": rate(part) if part is not None and len(part) else None}
         item = {"id": uuid4().hex, "line": body.line, "kind": body.kind, "target": target, "scene": scene, "state": "draft", "current": version, "versions": [version], "cover": None, "origin": {"opportunityId": body.opportunityId, "clusterIds": ids, "uses": evidence.get("uses", 0), "enterprises": evidence.get("enterprises", 0), "downloadRate": evidence.get("downloadRate"), "originalPrompt": original}, "review": {"checks": [], "trial": None, "comment": None, "suggestedState": None}, "fdTemplateId": None, "exportedAt": None, "liveAt": None, "createdAt": stamp, "updatedAt": stamp}
         self.refresh_checks(item)
-        item["sourceCases"] = [self.context.cases.source(fact.id) for fact in source_cases]
-        self._save(item)
+        item["sourceCases"] = [self.context.cases.source(fact.id, fact.unit) for fact in source_cases]
+        with self.store.connection() as conn:
+            self._save(item, conn)
+            for fact in source_cases:
+                conn.execute("UPDATE case_pool SET template_id=? WHERE unit=? AND id=?", (item["id"], fact.unit, fact.id))
         if opportunity:
             opportunity.update(state="adopted", draftId=item["id"])
             self._save_opportunity(opportunity)
@@ -452,7 +460,8 @@ class Templates:
                 images[source] = {"task": row.row_key, "source": source, "path": str(image_dir / f"{row.row_key}.webp"), "references": []}
             images[source]["references"].append({"rowKey": row.row_key, "kind": "inputs"})
         if source_case_rows:
-            for image in self.context.case_analyses.images({"cases": source_case_rows}, image_dir):
+            references = [{**row, "steps": [row["first"], row["last"]], "downloadedAt": None} for row in source_case_rows]
+            for image in self.context.case_analyses.images({"cases": references}, image_dir):
                 source = image["source"]
                 if source in images:
                     images[source]["references"].extend(image["references"])
@@ -668,5 +677,6 @@ def mount(app: FastAPI, context):
 
     @app.delete("/api/templates/{key}")
     def delete_template(key: str):
-        with context.store.lock:
-            context.repo.delete("template", key)
+        with context.store.lock, context.store.connection() as conn:
+            context.repo.delete("template", key, conn=conn)
+            conn.execute("UPDATE case_pool SET template_id=NULL WHERE template_id=?", (key,))

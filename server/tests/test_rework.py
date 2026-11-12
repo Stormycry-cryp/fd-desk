@@ -147,7 +147,9 @@ def test_pipeline_reports_real_model_configuration_failure_and_continues(client)
     assert result["id"] == response.json()["id"] and result["finishedAt"]
     states = {step["kind"]: step for step in result["steps"]}
     assert states["opportunities"]["state"] == "failed"
-    assert states["opportunities"]["error"]
+    assert states["opportunities"]["error"]["code"] == "pipeline_jobs_failed"
+    jobs = [item["job"] for item in context.repo.find("job") if item["operation"] == "templates.opportunities"]
+    assert jobs and all(job["state"] == "failed" and job["error"]["code"] == "codex_unconfigured" for job in jobs)
     assert states["followups"]["state"] == "done"
     assert states["monitor"]["state"] == "done"
     rerun = client.post("/api/pipeline/run", json={"steps": ["followups"], "week": WEEK})
